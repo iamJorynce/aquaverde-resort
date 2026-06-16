@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import WalkInPage from './WalkInPage'
+import CheckInOutPage from './CheckInOutPage'
+import POSPage from './POSPage'
 
 const NAV = [
   { id: 'dashboard',    icon: '📊', label: 'Dashboard' },
@@ -322,8 +325,17 @@ export default function DashboardPage() {
                 </div>
               )}
 
+              {/* WALK-IN */}
+              {page === 'walkin' && <WalkInPage />}
+
+              {/* CHECK-IN / CHECK-OUT */}
+              {page === 'checkinout' && <CheckInOutPage />}
+
+              {/* POS / CASHIER */}
+              {page === 'pos' && <POSPage />}
+
               {/* PLACEHOLDER for other pages */}
-              {!['dashboard','rooms','bookings'].includes(page) && (
+              {!['dashboard','rooms','bookings','walkin','checkinout','pos'].includes(page) && (
                 <div className="flex flex-col items-center justify-center h-64 text-center">
                   <div className="text-4xl mb-3">{NAV.find(n => n.id === page)?.icon}</div>
                   <div className="text-base font-medium text-gray-700 mb-1">{NAV.find(n => n.id === page)?.label}</div>
