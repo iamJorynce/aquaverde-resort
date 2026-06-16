@@ -1,0 +1,9 @@
+[functions.send-checkin-reminder]
+schedule = "0 2 * * *"      # 10AM PHT daily
+
+[functions.send-checkout-reminder]
+schedule = "0 0 * * *"      # 8AM PHT daily
+
+[functions.low-stock-alert]
+schedule = "0 22 * * *"     # 6AM PHT daily
+
