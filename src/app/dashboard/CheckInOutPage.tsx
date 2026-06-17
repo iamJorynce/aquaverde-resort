@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { printReceipt } from './receipt'
 
 export default function CheckInOutPage() {
   const supabase = createClient()
@@ -109,7 +110,26 @@ export default function CheckInOutPage() {
       })
     }
 
-    showToast(`${(booking.guests as any)?.full_name} checked out! Room set to cleaning.`)
+    const guestName = (booking.guests as any)?.full_name ?? 'Guest'
+    const roomLabel = booking.rooms ? `Room ${(booking.rooms as any).room_number}` : (booking.cottages as any)?.name ?? 'Accommodation'
+
+    printReceipt({
+      title: 'AquaVerde Beach Resort',
+      receiptNumber: booking.booking_number,
+      receiptType: 'Check-out Receipt',
+      date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
+      guestName,
+      lineItems: [
+        { label: roomLabel, amount: booking.total_amount },
+      ],
+      total: booking.total_amount,
+      amountPaid: booking.total_amount,
+      balance: 0,
+      paymentMethod: 'cash',
+      footerNote: 'Thank you for staying with us!',
+    })
+
+    showToast(`${guestName} checked out! Room set to cleaning.`)
     load()
   }
 
@@ -169,7 +189,7 @@ export default function CheckInOutPage() {
               </thead>
               <tbody>
                 {pendingCheckins.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">Walay pending check-ins karon.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">No pending check-ins today.</td></tr>
                 ) : pendingCheckins.map(b => (
                   <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
@@ -221,7 +241,7 @@ export default function CheckInOutPage() {
               </thead>
               <tbody>
                 {activeStays.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">Walay currently checked-in guests.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">No guests currently checked in.</td></tr>
                 ) : activeStays.map(b => (
                   <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
@@ -265,7 +285,7 @@ export default function CheckInOutPage() {
               </thead>
               <tbody>
                 {pendingCheckouts.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">Walay pending check-outs karon.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">No pending check-outs today.</td></tr>
                 ) : pendingCheckouts.map(b => {
                   const balance = Math.max(0, b.total_amount - b.amount_paid)
                   return (

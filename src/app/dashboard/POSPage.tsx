@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { printReceipt } from './receipt'
 
 interface MenuItem {
   id: string
@@ -78,7 +79,7 @@ export default function POSPage() {
   const subtotal = cart.reduce((s, c) => s + c.price * c.qty, 0)
 
   async function processPayment() {
-    if (cart.length === 0) { showToast('Walay items sa cart.'); return }
+    if (cart.length === 0) { showToast('No items in cart.'); return }
     setLoading(true)
 
     try {
@@ -126,6 +127,23 @@ export default function POSPage() {
       }
 
       showToast(`Order ${orderNumber} processed! ₱${subtotal.toLocaleString()}`)
+
+      const linkedBooking = activeBookings.find(b => b.id === chargeToBooking)
+      const guestName = linkedBooking ? (linkedBooking.guests as any)?.full_name ?? 'Guest' : 'Walk-in Guest'
+
+      printReceipt({
+        title: 'AquaVerde Beach Resort',
+        receiptNumber: orderNumber,
+        receiptType: 'POS Receipt',
+        date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
+        guestName,
+        lineItems: cart.map(c => ({ label: c.name, qty: c.qty, amount: c.price * c.qty })),
+        total: subtotal,
+        amountPaid: subtotal,
+        paymentMethod: chargeToBooking ? 'room_charge' : paymentMethod,
+        footerNote: chargeToBooking ? 'Charged to room — settled at check-out.' : 'Thank you for your order!',
+      })
+
       setCart([])
       setChargeToBooking('')
     } catch (err: any) {
@@ -166,7 +184,7 @@ export default function POSPage() {
 
           <div className="space-y-1 max-h-96 overflow-y-auto">
             {filteredItems.length === 0 ? (
-              <div className="text-center py-8 text-gray-400 text-xs">Walay items niini nga category.</div>
+              <div className="text-center py-8 text-gray-400 text-xs">No items in this category.</div>
             ) : filteredItems.map(item => (
               <div key={item.id} className="flex items-center justify-between py-2 border-b border-gray-50">
                 <div>
@@ -190,7 +208,7 @@ export default function POSPage() {
 
           <div className="min-h-[160px] mb-3">
             {cart.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 text-xs">Walay items sa cart</div>
+              <div className="text-center py-12 text-gray-400 text-xs">No items in cart</div>
             ) : cart.map(c => (
               <div key={c.id} className="flex items-center justify-between py-2 border-b border-gray-50">
                 <div>

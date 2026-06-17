@@ -6,6 +6,20 @@ import { useRouter } from 'next/navigation'
 import WalkInPage from './WalkInPage'
 import CheckInOutPage from './CheckInOutPage'
 import POSPage from './POSPage'
+import RoomsPage from './RoomsPage'
+import CottagesPage from './CottagesPage'
+import DayUsePage from './DayUsePage'
+import RestaurantPage from './RestaurantPage'
+import HousekeepingPage from './HousekeepingPage'
+import MaintenancePage from './MaintenancePage'
+import InventoryPage from './InventoryPage'
+import EquipmentPage from './EquipmentPage'
+import GuestsPage from './GuestsPage'
+import StaffPage from './StaffPage'
+import BillingPage from './BillingPage'
+import ReportsPage from './ReportsPage'
+import SettingsPage from './SettingsPage'
+import { canAccess, getAccessibleModules, ROLE_LABELS } from './permissions'
 
 const NAV = [
   { id: 'dashboard',    icon: '📊', label: 'Dashboard' },
@@ -72,6 +86,12 @@ export default function DashboardPage() {
       setRooms(rm ?? [])
       setBookings(bk ?? [])
       setLoading(false)
+
+      // Guard: if this user somehow lands on a page they can't access
+      // (e.g. browser back button, stale state), bounce to dashboard.
+      if (!canAccess(prof?.role, page)) {
+        setPage('dashboard')
+      }
     }
     load()
   }, [])
@@ -125,7 +145,7 @@ export default function DashboardPage() {
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-2">
-          {NAV.map(n => (
+          {NAV.filter(n => canAccess(profile?.role, n.id)).map(n => (
             <button
               key={n.id}
               onClick={() => { setPage(n.id); setSidebarOpen(false) }}
@@ -144,7 +164,7 @@ export default function DashboardPage() {
         {/* Profile */}
         <div className="p-4 border-t border-gray-100">
           <div className="text-xs font-medium text-gray-700 truncate">{profile?.full_name ?? 'User'}</div>
-          <div className="text-xs text-gray-400 capitalize mb-2">{profile?.role?.replace('_', ' ') ?? ''}</div>
+          <div className="text-xs text-gray-400 mb-2">{ROLE_LABELS[profile?.role] ?? profile?.role ?? ''}</div>
           <button onClick={handleLogout} className="text-xs text-red-500 hover:text-red-700">Sign out</button>
         </div>
       </aside>
@@ -158,8 +178,8 @@ export default function DashboardPage() {
           <h1 className="text-sm font-semibold text-gray-800 flex-1 capitalize">
             {NAV.find(n => n.id === page)?.label ?? 'Dashboard'}
           </h1>
-          <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full capitalize">
-            {profile?.role?.replace('_', ' ') ?? ''}
+          <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full">
+            {ROLE_LABELS[profile?.role] ?? profile?.role ?? ''}
           </span>
         </header>
 
@@ -167,6 +187,15 @@ export default function DashboardPage() {
         <main className="flex-1 overflow-auto p-4 md:p-6">
           {loading ? (
             <div className="flex items-center justify-center h-48 text-gray-400 text-sm">Loading...</div>
+          ) : !canAccess(profile?.role, page) ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center">
+              <div className="text-4xl mb-3">🔒</div>
+              <div className="text-base font-medium text-gray-700 mb-1">Access restricted</div>
+              <div className="text-sm text-gray-400">Your role ({ROLE_LABELS[profile?.role] ?? profile?.role}) doesn't have access to this module.</div>
+              <button onClick={() => setPage('dashboard')} className="mt-4 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm rounded-lg">
+                Back to Dashboard
+              </button>
+            </div>
           ) : (
             <>
               {/* DASHBOARD */}
@@ -181,7 +210,7 @@ export default function DashboardPage() {
                       { icon:'🏠', label:'Rooms', page:'rooms' },
                       { icon:'🧾', label:'Open POS', page:'pos' },
                       { icon:'✨', label:'Housekeeping', page:'housekeeping' },
-                    ].map(a => (
+                    ].filter(a => canAccess(profile?.role, a.page)).map(a => (
                       <button key={a.label} onClick={() => setPage(a.page)}
                         className="bg-white border border-gray-200 rounded-xl p-3 text-center hover:border-blue-300 hover:bg-blue-50 transition-colors">
                         <div className="text-xl mb-1">{a.icon}</div>
@@ -255,36 +284,7 @@ export default function DashboardPage() {
               )}
 
               {/* ROOMS */}
-              {page === 'rooms' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-medium text-gray-700">{rooms.length} Rooms</div>
-                    <div className="flex gap-2 text-xs">
-                      {['available','occupied','cleaning','maintenance'].map(s => (
-                        <span key={s} className={`px-2 py-1 rounded-full capitalize ${statusColor[s]}`}>{s}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                    {rooms.length === 0 ? (
-                      <div className="col-span-full text-center py-12 text-gray-400 text-sm">
-                        No rooms found. Add rooms in Supabase first.
-                      </div>
-                    ) : rooms.map(r => (
-                      <div key={r.id} className="bg-white border border-gray-100 rounded-xl p-3">
-                        <div className="text-lg font-semibold text-gray-800">Room {r.room_number}</div>
-                        <div className="text-xs text-gray-500 mb-2">{(r.room_types_config as any)?.name ?? 'Standard'}</div>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[r.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                          {r.status}
-                        </span>
-                        <div className="text-xs text-blue-600 font-medium mt-2">
-                          ₱{Number((r.room_types_config as any)?.base_rate ?? 0).toLocaleString()}/night
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {page === 'rooms' && <RoomsPage />}
 
               {/* BOOKINGS */}
               {page === 'bookings' && (
@@ -334,15 +334,41 @@ export default function DashboardPage() {
               {/* POS / CASHIER */}
               {page === 'pos' && <POSPage />}
 
-              {/* PLACEHOLDER for other pages */}
-              {!['dashboard','rooms','bookings','walkin','checkinout','pos'].includes(page) && (
-                <div className="flex flex-col items-center justify-center h-64 text-center">
-                  <div className="text-4xl mb-3">{NAV.find(n => n.id === page)?.icon}</div>
-                  <div className="text-base font-medium text-gray-700 mb-1">{NAV.find(n => n.id === page)?.label}</div>
-                  <div className="text-sm text-gray-400">This module is ready to build.</div>
-                  <div className="text-xs text-gray-400 mt-1">Connect the API routes from <code className="bg-gray-100 px-1 rounded">03_api_routes.ts</code></div>
-                </div>
-              )}
+              {/* COTTAGES */}
+              {page === 'cottages' && <CottagesPage />}
+
+              {/* DAY USE */}
+              {page === 'dayuse' && <DayUsePage />}
+
+              {/* RESTAURANT */}
+              {page === 'restaurant' && <RestaurantPage />}
+
+              {/* HOUSEKEEPING */}
+              {page === 'housekeeping' && <HousekeepingPage />}
+
+              {/* MAINTENANCE */}
+              {page === 'maintenance' && <MaintenancePage />}
+
+              {/* INVENTORY */}
+              {page === 'inventory' && <InventoryPage />}
+
+              {/* EQUIPMENT */}
+              {page === 'equipment' && <EquipmentPage />}
+
+              {/* GUESTS */}
+              {page === 'guests' && <GuestsPage />}
+
+              {/* STAFF */}
+              {page === 'staff' && <StaffPage />}
+
+              {/* BILLING */}
+              {page === 'billing' && <BillingPage />}
+
+              {/* REPORTS */}
+              {page === 'reports' && <ReportsPage />}
+
+              {/* SETTINGS */}
+              {page === 'settings' && <SettingsPage />}
             </>
           )}
         </main>

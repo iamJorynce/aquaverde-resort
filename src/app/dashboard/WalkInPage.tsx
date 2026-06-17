@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { printReceipt } from './receipt'
 
 interface RoomOption {
   id: string
@@ -14,7 +15,17 @@ export default function WalkInPage() {
   const supabase = createClient()
   const [rooms, setRooms] = useState<RoomOption[]>([])
   const [loading, setLoading] = useState(false)
-  const [success, setSuccess] = useState<{ wristband: string; bookingNumber: string } | null>(null)
+  const [success, setSuccess] = useState<{
+    wristband: string
+    bookingNumber: string
+    guestName: string
+    roomLabel: string
+    nights: number
+    rate: number
+    subtotal: number
+    deposit: number
+    total: number
+  } | null>(null)
   const [error, setError] = useState('')
 
   const [form, setForm] = useState({
@@ -57,7 +68,7 @@ export default function WalkInPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.full_name || !form.room_id) {
-      setError('Palihug i-fill ang ngalan ug pilia ang room.')
+      setError('Please fill in the name and select a room.')
       return
     }
     setLoading(true)
@@ -134,7 +145,17 @@ export default function WalkInPage() {
         })
       }
 
-      setSuccess({ wristband, bookingNumber: booking.booking_number })
+      setSuccess({
+        wristband,
+        bookingNumber: booking.booking_number,
+        guestName: form.full_name,
+        roomLabel: `Room ${selectedRoom?.room_number} — ${selectedRoom?.room_types_config?.name}`,
+        nights,
+        rate,
+        subtotal,
+        deposit: form.security_deposit,
+        total,
+      })
 
       // Reset form
       setForm({
@@ -154,7 +175,7 @@ export default function WalkInPage() {
       setRooms((data as any) ?? [])
 
     } catch (err: any) {
-      setError(err.message || 'Naay sayop. Try again.')
+      setError(err.message || 'Something went wrong. Try again.')
     } finally {
       setLoading(false)
     }
@@ -170,7 +191,29 @@ export default function WalkInPage() {
             </div>
             <div className="text-xs text-green-600 mt-0.5">Wristband: {success.wristband}</div>
           </div>
-          <button onClick={() => setSuccess(null)} className="text-green-600 text-sm">×</button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => printReceipt({
+                title: 'AquaVerde Beach Resort',
+                receiptNumber: success.bookingNumber,
+                receiptType: 'Walk-in Receipt',
+                date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
+                guestName: success.guestName,
+                lineItems: [
+                  { label: success.roomLabel, qty: success.nights, amount: success.subtotal },
+                  { label: 'Security deposit (refundable)', amount: success.deposit },
+                ],
+                total: success.total,
+                amountPaid: success.total,
+                paymentMethod: 'cash',
+                footerNote: `Wristband: ${success.wristband}`,
+              })}
+              className="text-sm text-green-700 hover:text-green-900 underline"
+            >
+              Print Receipt
+            </button>
+            <button onClick={() => setSuccess(null)} className="text-green-600 text-sm">×</button>
+          </div>
         </div>
       )}
 
@@ -251,7 +294,7 @@ export default function WalkInPage() {
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
             >
-              <option value="">-- Pilia ang room --</option>
+              <option value="">-- Select a room --</option>
               {rooms.map(r => (
                 <option key={r.id} value={r.id}>
                   Room {r.room_number} — {r.room_types_config?.name} (₱{r.room_types_config?.base_rate}/night)
@@ -259,7 +302,7 @@ export default function WalkInPage() {
               ))}
             </select>
             {rooms.length === 0 && (
-              <div className="text-xs text-amber-600 mt-1">Walay available rooms karon.</div>
+              <div className="text-xs text-amber-600 mt-1">No available rooms right now.</div>
             )}
           </div>
 
