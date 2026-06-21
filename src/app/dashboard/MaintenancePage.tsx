@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { logActivity } from './activityLog'
 
 const statusColor: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-600',
@@ -86,6 +87,13 @@ export default function MaintenancePage() {
     if (status === 'completed' && ticket.room_id) {
       await supabase.from('rooms').update({ status: 'available' }).eq('id', ticket.room_id)
     }
+
+    await logActivity(supabase, {
+      action: status === 'completed' ? 'MAINTENANCE_RESOLVED' : 'MAINTENANCE_STARTED',
+      details: `${ticket.ticket_number} — ${ticket.title}`,
+      table_name: 'maintenance_requests',
+      record_id: ticket.id,
+    })
 
     showToast(`Ticket ${ticket.ticket_number} → ${status}`)
     load()

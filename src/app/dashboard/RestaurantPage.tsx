@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { usePermissions } from './permissions'
 
 const statusColor: Record<string, string> = {
   pending:   'bg-blue-100 text-blue-700',
@@ -25,6 +26,7 @@ const nextLabel: Record<string, string> = {
 
 export default function RestaurantPage() {
   const supabase = createClient()
+  const { can } = usePermissions()
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
@@ -103,18 +105,22 @@ export default function RestaurantPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700">₱{Number(o.total).toLocaleString()}</span>
-                <div className="flex gap-2">
-                  {o.status !== 'cancelled' && nextStatus[o.status] && (
-                    <button onClick={() => advanceStatus(o)}
-                      className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
-                      {nextLabel[o.status]}
+                {can('canManageKitchenOrders') ? (
+                  <div className="flex gap-2">
+                    {o.status !== 'cancelled' && nextStatus[o.status] && (
+                      <button onClick={() => advanceStatus(o)}
+                        className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
+                        {nextLabel[o.status]}
+                      </button>
+                    )}
+                    <button onClick={() => cancelOrder(o)}
+                      className="px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 text-xs rounded-lg">
+                      Cancel
                     </button>
-                  )}
-                  <button onClick={() => cancelOrder(o)}
-                    className="px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 text-xs rounded-lg">
-                    Cancel
-                  </button>
-                </div>
+                  </div>
+                ) : (
+                  <span className="text-xs text-gray-400 italic">View only</span>
+                )}
               </div>
             </div>
           ))}

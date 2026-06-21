@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { usePermissions } from './permissions'
+import { logActivity } from './activityLog'
 
 const statusColor: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-600',
@@ -19,6 +21,7 @@ const priorityColor: Record<string, string> = {
 
 export default function HousekeepingPage() {
   const supabase = createClient()
+  const { can } = usePermissions()
   const [tasks, setTasks] = useState<any[]>([])
   const [rooms, setRooms] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -82,6 +85,13 @@ export default function HousekeepingPage() {
       await supabase.from('rooms').update({ status: 'available', last_cleaned_at: new Date().toISOString() }).eq('id', task.room_id)
     }
 
+    await logActivity(supabase, {
+      action: status === 'completed' ? 'TASK_COMPLETED' : 'TASK_STARTED',
+      details: `${task.task_number} (${task.task_type})`,
+      table_name: 'housekeeping_tasks',
+      record_id: task.id,
+    })
+
     showToast(`Task ${task.task_number} → ${status.replace('_', ' ')}`)
     load()
   }
@@ -96,13 +106,15 @@ export default function HousekeepingPage() {
 
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm font-medium text-gray-700">{tasks.length} Tasks</div>
-        <button onClick={() => setShowForm(!showForm)}
-          className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
-          {showForm ? 'Cancel' : '+ Assign Task'}
-        </button>
+        {can('canCreateHousekeepingTask') && (
+          <button onClick={() => setShowForm(!showForm)}
+            className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
+            {showForm ? 'Cancel' : '+ Assign Task'}
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {showForm && can('canCreateHousekeepingTask') && (
         <form onSubmit={createTask} className="bg-white border border-gray-100 rounded-xl p-4 mb-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Room</label>

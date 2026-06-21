@@ -1,5 +1,11 @@
-// Role-based access control configuration
-// Defines which navigation items each role can see and use.
+// Role-based access control configuration.
+// MODULE_ACCESS controls sidebar visibility (which pages a role can open).
+// ACTION_PERMISSIONS controls fine-grained capabilities WITHIN a page
+// (e.g. Housekeeping can open the Housekeeping page, but can't create
+// new tasks — only view/update the ones assigned to them).
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 
 export type Role =
   | 'super_admin'
@@ -12,8 +18,6 @@ export type Role =
   | 'restaurant'
   | 'guest'
 
-// Each module ID maps to the list of roles allowed to access it.
-// super_admin and resort_owner always have full access (handled in code, not listed every time).
 export const MODULE_ACCESS: Record<string, Role[]> = {
   dashboard:      ['super_admin', 'resort_owner', 'front_desk', 'cashier', 'staff', 'housekeeping', 'maintenance', 'restaurant'],
   bookings:       ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
@@ -33,9 +37,9 @@ export const MODULE_ACCESS: Record<string, Role[]> = {
   billing:        ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
   reports:        ['super_admin', 'resort_owner'],
   settings:       ['super_admin', 'resort_owner'],
+  activitylog:    ['super_admin', 'resort_owner'],
 }
 
-// Roles that always see everything, no need to list them per module above.
 const FULL_ACCESS_ROLES: Role[] = ['super_admin', 'resort_owner']
 
 export function canAccess(role: string | undefined | null, moduleId: string): boolean {
@@ -52,7 +56,6 @@ export function getAccessibleModules(role: string | undefined | null): string[] 
   return Object.keys(MODULE_ACCESS).filter(m => MODULE_ACCESS[m].includes(role as Role))
 }
 
-// Friendly display name for roles, used in the topbar badge.
 export const ROLE_LABELS: Record<string, string> = {
   super_admin:  'Super Admin',
   resort_owner: 'Resort Owner',
@@ -63,4 +66,57 @@ export const ROLE_LABELS: Record<string, string> = {
   maintenance:  'Maintenance',
   restaurant:   'Restaurant',
   guest:        'Guest',
+}
+
+// ---------------------------------------------------------------------------
+// ACTION-LEVEL PERMISSIONS
+// Finer grained than module access — these gate specific buttons/actions
+// within a page that's otherwise accessible to a role.
+// ---------------------------------------------------------------------------
+
+export const ACTION_PERMISSIONS = {
+  // Housekeeping: can see and update their assigned tasks, but cannot
+  // create new tasks or see revenue figures on the dashboard.
+  canCreateHousekeepingTask: ['super_admin', 'resort_owner', 'front_desk'] as Role[],
+  canViewRevenueStats:       ['super_admin', 'resort_owner', 'front_desk', 'cashier'] as Role[],
+
+  // Equipment: only admins manage the equipment catalog (add/edit/remove
+  // equipment types). Front desk and cashier can still rent out/return.
+  canManageEquipmentCatalog: ['super_admin', 'resort_owner'] as Role[],
+
+  // Restaurant: cashier can view order status but not advance/cancel
+  // kitchen orders — that's the restaurant role's job.
+  canManageKitchenOrders:    ['super_admin', 'resort_owner', 'front_desk', 'restaurant'] as Role[],
+} as const
+
+export type ActionPermission = keyof typeof ACTION_PERMISSIONS
+
+export function hasPermission(role: string | undefined | null, permission: ActionPermission): boolean {
+  if (!role) return false
+  if (FULL_ACCESS_ROLES.includes(role as Role)) return true
+  return (ACTION_PERMISSIONS[permission] as readonly Role[]).includes(role as Role)
+}
+
+// ---------------------------------------------------------------------------
+// React hook — convenient role + permission access inside components.
+// Usage: const { role, can } = usePermissions(); if (can('canCreateHousekeepingTask')) ...
+// ---------------------------------------------------------------------------
+
+export function usePermissions() {
+  const [role, setRole] = useState<string | null>(null)
+  const supabase = createClient()
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      supabase.from('profiles').select('role').eq('id', user.id).single()
+        .then(({ data }) => setRole(data?.role ?? null))
+    })
+  }, [])
+
+  return {
+    role,
+    can: (permission: ActionPermission) => hasPermission(role, permission),
+    canAccessModule: (moduleId: string) => canAccess(role, moduleId),
+  }
 }

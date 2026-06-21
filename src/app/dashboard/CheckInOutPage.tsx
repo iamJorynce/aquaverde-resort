@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { printReceipt } from './receipt'
+import { createOrUpdateInvoice } from './invoiceUtils'
 
 export default function CheckInOutPage() {
   const supabase = createClient()
@@ -12,6 +13,13 @@ export default function CheckInOutPage() {
   const [pendingCheckouts, setPendingCheckouts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
+  const [billDetail, setBillDetail] = useState<{ booking: any; addons: any[] } | null>(null)
+  const [loadingBill, setLoadingBill] = useState(false)
+
+  const [checkoutModal, setCheckoutModal] = useState<{ booking: any; addons: any[] } | null>(null)
+  const [checkoutAmount, setCheckoutAmount] = useState(0)
+  const [checkoutMethod, setCheckoutMethod] = useState('cash')
+  const [processingCheckout, setProcessingCheckout] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -76,20 +84,54 @@ export default function CheckInOutPage() {
     load()
   }
 
-  async function handleCheckOut(booking: any) {
+  async function viewBill(booking: any) {
+    setLoadingBill(true)
+    const { data: addons } = await supabase
+      .from('booking_addons')
+      .select('*')
+      .eq('booking_id', booking.id)
+      .order('created_at')
+    setBillDetail({ booking, addons: addons ?? [] })
+    setLoadingBill(false)
+  }
+
+  async function openCheckoutModal(booking: any) {
     const balance = Math.max(0, booking.total_amount - booking.amount_paid)
+
+    const { data: addons } = await supabase
+      .from('booking_addons')
+      .select('*')
+      .eq('booking_id', booking.id)
+      .order('created_at')
+
+    setCheckoutModal({ booking, addons: addons ?? [] })
+    setCheckoutAmount(balance)
+    setCheckoutMethod('cash')
+  }
+
+  async function confirmCheckout() {
+    if (!checkoutModal) return
+    const { booking, addons } = checkoutModal
+    const balanceBefore = Math.max(0, booking.total_amount - booking.amount_paid)
+
+    if (checkoutAmount < 0) { showToast('Amount cannot be negative.'); return }
+
+    setProcessingCheckout(true)
+
+    const newAmountPaid = Number(booking.amount_paid) + Number(checkoutAmount)
+    const remainingBalance = Math.max(0, booking.total_amount - newAmountPaid)
 
     const { error } = await supabase
       .from('bookings')
       .update({
         status: 'checked_out',
         actual_check_out: new Date().toISOString(),
-        amount_paid: booking.total_amount,
-        payment_status: 'paid',
+        amount_paid: newAmountPaid,
+        payment_status: remainingBalance > 0 ? 'partial' : 'paid',
       })
       .eq('id', booking.id)
 
-    if (error) { showToast('Error: ' + error.message); return }
+    if (error) { showToast('Error: ' + error.message); setProcessingCheckout(false); return }
 
     if (booking.room_id) {
       await supabase.from('rooms').update({ status: 'cleaning' }).eq('id', booking.room_id)
@@ -98,20 +140,30 @@ export default function CheckInOutPage() {
       await supabase.from('cottages').update({ status: 'cleaning' }).eq('id', booking.cottage_id)
     }
 
-    if (balance > 0) {
+    if (checkoutAmount > 0) {
       await supabase.from('transactions').insert({
         txn_number: `TXN-${Date.now()}`,
         booking_id: booking.id,
         guest_id: booking.guest_id,
         txn_type: 'room',
-        description: 'Final payment on check-out',
-        amount: balance,
-        payment_method: 'cash',
+        description: 'Payment recorded at check-out',
+        amount: checkoutAmount,
+        payment_method: checkoutMethod,
       })
     }
 
     const guestName = (booking.guests as any)?.full_name ?? 'Guest'
     const roomLabel = booking.rooms ? `Room ${(booking.rooms as any).room_number}` : (booking.cottages as any)?.name ?? 'Accommodation'
+
+    // booking.subtotal is the original room/cottage charge before any
+    // POS add-ons were charged to the room. Listing each addon separately
+    // (instead of just the final total_amount) is what makes POS charges
+    // actually visible on the check-out receipt.
+    const addonLineItems = (addons ?? []).map((a: any) => ({
+      label: a.name,
+      qty: a.quantity > 1 ? a.quantity : undefined,
+      amount: Number(a.total_price ?? a.unit_price * a.quantity),
+    }))
 
     printReceipt({
       title: 'AquaVerde Beach Resort',
@@ -120,16 +172,41 @@ export default function CheckInOutPage() {
       date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
       guestName,
       lineItems: [
-        { label: roomLabel, amount: booking.total_amount },
+        { label: roomLabel, amount: Number(booking.subtotal) },
+        ...addonLineItems,
       ],
       total: booking.total_amount,
-      amountPaid: booking.total_amount,
-      balance: 0,
-      paymentMethod: 'cash',
-      footerNote: 'Thank you for staying with us!',
+      amountPaid: newAmountPaid,
+      balance: remainingBalance,
+      paymentMethod: checkoutMethod,
+      footerNote: remainingBalance > 0
+        ? 'Balance remains on this guest\'s account.'
+        : 'Thank you for staying with us!',
     })
 
-    showToast(`${guestName} checked out! Room set to cleaning.`)
+    // Update (or create) the invoice to reflect final payment state.
+    // If invoice was already created at walk-in, this updates it.
+    // If somehow missed (e.g. advance booking checked in without walk-in flow),
+    // this creates it fresh so Billing always has a record.
+    await createOrUpdateInvoice(supabase, {
+      booking_id: booking.id,
+      guest_id: booking.guest_id,
+      subtotal: Number(booking.subtotal),
+      total: Number(booking.total_amount),
+      amount_paid: newAmountPaid,
+      notes: remainingBalance > 0
+        ? `Partial payment at check-out. Balance: ₱${remainingBalance.toLocaleString()}`
+        : 'Fully settled at check-out.',
+    })
+
+    showToast(
+      remainingBalance > 0
+        ? `${guestName} checked out with ₱${remainingBalance.toLocaleString()} balance remaining.`
+        : `${guestName} checked out! Room set to cleaning.`
+    )
+
+    setCheckoutModal(null)
+    setProcessingCheckout(false)
     load()
   }
 
@@ -254,8 +331,14 @@ export default function CheckInOutPage() {
                     <td className="px-4 py-2.5 text-gray-500">{b.wristband_number ?? '—'}</td>
                     <td className="px-4 py-2.5">
                       <button
-                        onClick={() => handleCheckOut(b)}
-                        className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs rounded-lg"
+                        onClick={() => viewBill(b)}
+                        className="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg mr-1"
+                      >
+                        View Bill
+                      </button>
+                      <button
+                        onClick={() => openCheckoutModal(b)}
+                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg"
                       >
                         Check Out Now
                       </button>
@@ -303,7 +386,13 @@ export default function CheckInOutPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         <button
-                          onClick={() => handleCheckOut(b)}
+                          onClick={() => viewBill(b)}
+                          className="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg mr-1"
+                        >
+                          View Bill
+                        </button>
+                        <button
+                          onClick={() => openCheckoutModal(b)}
                           className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg"
                         >
                           Check Out
@@ -314,6 +403,152 @@ export default function CheckInOutPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {billDetail && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setBillDetail(null)}>
+          <div className="bg-white rounded-xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="text-sm font-medium text-gray-700 mb-1">
+              Bill — {billDetail.booking.booking_number}
+            </div>
+            <div className="text-xs text-gray-400 mb-3">
+              {(billDetail.booking.guests as any)?.full_name}
+            </div>
+
+            <div className="text-sm space-y-1.5 mb-3">
+              <div className="flex justify-between text-gray-600">
+                <span>
+                  {billDetail.booking.rooms ? `Room ${(billDetail.booking.rooms as any).room_number}` : (billDetail.booking.cottages as any)?.name}
+                </span>
+                <span>₱{Number(billDetail.booking.subtotal).toLocaleString()}</span>
+              </div>
+
+              {billDetail.addons.length === 0 ? (
+                <div className="text-xs text-gray-400 italic">No additional charges (POS, etc.)</div>
+              ) : billDetail.addons.map((a: any) => (
+                <div key={a.id} className="flex justify-between text-gray-600">
+                  <span>{a.name}{a.quantity > 1 ? ` × ${a.quantity}` : ''}</span>
+                  <span>₱{Number(a.total_price ?? a.unit_price * a.quantity).toLocaleString()}</span>
+                </div>
+              ))}
+
+              <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-1.5 mt-1.5">
+                <span>Total</span>
+                <span>₱{Number(billDetail.booking.total_amount).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-gray-500">
+                <span>Amount Paid</span>
+                <span>₱{Number(billDetail.booking.amount_paid).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between font-medium">
+                <span className={billDetail.booking.total_amount - billDetail.booking.amount_paid > 0 ? 'text-red-600' : 'text-green-600'}>
+                  Balance
+                </span>
+                <span className={billDetail.booking.total_amount - billDetail.booking.amount_paid > 0 ? 'text-red-600' : 'text-green-600'}>
+                  ₱{Math.max(0, billDetail.booking.total_amount - billDetail.booking.amount_paid).toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <button onClick={() => setBillDetail(null)} className="w-full py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {checkoutModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !processingCheckout && setCheckoutModal(null)}>
+          <div className="bg-white rounded-xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="text-sm font-medium text-gray-700 mb-1">
+              Check Out — {checkoutModal.booking.booking_number}
+            </div>
+            <div className="text-xs text-gray-400 mb-3">
+              {(checkoutModal.booking.guests as any)?.full_name}
+            </div>
+
+            <div className="text-sm space-y-1.5 mb-3 bg-gray-50 rounded-lg p-3">
+              <div className="flex justify-between text-gray-600">
+                <span>
+                  {checkoutModal.booking.rooms ? `Room ${(checkoutModal.booking.rooms as any).room_number}` : (checkoutModal.booking.cottages as any)?.name}
+                </span>
+                <span>₱{Number(checkoutModal.booking.subtotal).toLocaleString()}</span>
+              </div>
+
+              {checkoutModal.addons.map((a: any) => (
+                <div key={a.id} className="flex justify-between text-gray-600">
+                  <span>{a.name}{a.quantity > 1 ? ` × ${a.quantity}` : ''}</span>
+                  <span>₱{Number(a.total_price ?? a.unit_price * a.quantity).toLocaleString()}</span>
+                </div>
+              ))}
+
+              <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-200 pt-1.5 mt-1.5">
+                <span>Total Bill</span>
+                <span>₱{Number(checkoutModal.booking.total_amount).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-gray-500">
+                <span>Already Paid</span>
+                <span>₱{Number(checkoutModal.booking.amount_paid).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between font-medium text-red-600">
+                <span>Balance Due</span>
+                <span>₱{Math.max(0, checkoutModal.booking.total_amount - checkoutModal.booking.amount_paid).toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-xs text-gray-500 mb-1">Amount Being Paid Now</label>
+              <input
+                type="number"
+                value={checkoutAmount}
+                onChange={e => setCheckoutAmount(parseFloat(e.target.value) || 0)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
+              />
+              <div className="text-xs text-gray-400 mt-1">
+                Defaults to the full balance. Lower it if the guest is only paying part now.
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs text-gray-500 mb-1">Payment Method</label>
+              <select
+                value={checkoutMethod}
+                onChange={e => setCheckoutMethod(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
+              >
+                <option value="cash">Cash</option>
+                <option value="gcash">GCash</option>
+                <option value="maya">Maya</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="credit_card">Credit Card</option>
+              </select>
+            </div>
+
+            {checkoutAmount < Math.max(0, checkoutModal.booking.total_amount - checkoutModal.booking.amount_paid) && (
+              <div className="bg-amber-50 border border-amber-100 rounded-lg p-2.5 text-xs text-amber-700 mb-3">
+                This is less than the full balance. The guest will check out with a remaining balance of{' '}
+                ₱{Math.max(0, checkoutModal.booking.total_amount - checkoutModal.booking.amount_paid - checkoutAmount).toLocaleString()}.
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={confirmCheckout}
+                disabled={processingCheckout}
+                className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg"
+              >
+                {processingCheckout ? 'Processing...' : 'Confirm Check-Out'}
+              </button>
+              <button
+                onClick={() => setCheckoutModal(null)}
+                disabled={processingCheckout}
+                className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

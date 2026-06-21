@@ -110,12 +110,38 @@ export default function POSPage() {
       )
 
       if (chargeToBooking) {
-        await supabase.from('booking_addons').insert({
-          booking_id: chargeToBooking,
-          name: `POS Order #${orderNumber}`,
-          quantity: 1,
-          unit_price: subtotal,
-        })
+        // Insert one row per cart item (not one lump-sum row) so the
+        // check-out receipt can show exactly what was ordered —
+        // e.g. "Grilled Bangus × 2", "San Miguel Beer × 3" — instead of
+        // just a generic "POS Order #..." label.
+        await supabase.from('booking_addons').insert(
+          cart.map(c => ({
+            booking_id: chargeToBooking,
+            name: c.name,
+            quantity: c.qty,
+            unit_price: c.price,
+          }))
+        )
+
+        // The addon rows alone don't affect billing anywhere — we have to
+        // bump the booking's own total so it shows up at checkout/billing.
+        const { data: currentBooking, error: fetchError } = await supabase
+          .from('bookings')
+          .select('extras_total, total_amount')
+          .eq('id', chargeToBooking)
+          .single()
+
+        if (fetchError) throw fetchError
+
+        const { error: updateError } = await supabase
+          .from('bookings')
+          .update({
+            extras_total: Number(currentBooking.extras_total ?? 0) + subtotal,
+            total_amount: Number(currentBooking.total_amount ?? 0) + subtotal,
+          })
+          .eq('id', chargeToBooking)
+
+        if (updateError) throw updateError
       } else {
         await supabase.from('transactions').insert({
           txn_number: `TXN-${Date.now()}`,

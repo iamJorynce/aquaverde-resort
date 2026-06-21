@@ -3,39 +3,40 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+const ROLE_OPTIONS = [
+  { value: 'super_admin',  label: 'Super Admin' },
+  { value: 'resort_owner', label: 'Resort Owner' },
+  { value: 'front_desk',   label: 'Front Desk' },
+  { value: 'cashier',      label: 'Cashier' },
+  { value: 'housekeeping', label: 'Housekeeping' },
+  { value: 'maintenance',  label: 'Maintenance' },
+  { value: 'restaurant',   label: 'Restaurant' },
+  { value: 'staff',        label: 'Staff (general)' },
+]
+
 export default function StaffPage() {
   const supabase = createClient()
   const [staff, setStaff] = useState<any[]>([])
-  const [unlinkedProfiles, setUnlinkedProfiles] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<any>(null)
+  const [submitting, setSubmitting] = useState(false)
+
   const [form, setForm] = useState({
-    profile_id: '', role: 'front_desk', department: '', position: '', shift: 'AM',
+    email: '', password: '', full_name: '', role: 'front_desk',
+    department: '', position: '', shift: 'AM',
     hire_date: new Date().toISOString().slice(0, 10),
   })
 
-  const ROLE_OPTIONS = [
-    { value: 'super_admin',  label: 'Super Admin' },
-    { value: 'resort_owner', label: 'Resort Owner' },
-    { value: 'front_desk',   label: 'Front Desk' },
-    { value: 'cashier',      label: 'Cashier' },
-    { value: 'housekeeping', label: 'Housekeeping' },
-    { value: 'maintenance',  label: 'Maintenance' },
-    { value: 'restaurant',   label: 'Restaurant' },
-    { value: 'staff',        label: 'Staff (general)' },
-  ]
-
   async function load() {
     setLoading(true)
-    const [{ data: staffData }, { data: profileData }] = await Promise.all([
-      supabase.from('staff').select('*, profiles(full_name, role)').eq('is_active', true).order('created_at', { ascending: false }),
-      supabase.from('profiles').select('id, full_name, role'),
-    ])
-    setStaff(staffData ?? [])
-    const linkedIds = new Set((staffData ?? []).map((s: any) => s.profile_id))
-    setUnlinkedProfiles((profileData ?? []).filter(p => !linkedIds.has(p.id)))
+    const { data } = await supabase
+      .from('staff')
+      .select('*, profiles(full_name, role)')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+    setStaff(data ?? [])
     setLoading(false)
   }
 
@@ -43,15 +44,13 @@ export default function StaffPage() {
 
   function showToast(msg: string) {
     setToast(msg)
-    setTimeout(() => setToast(''), 3000)
+    setTimeout(() => setToast(''), 4000)
   }
 
   function openNew() {
     setEditing(null)
-    const firstProfile = unlinkedProfiles[0]
     setForm({
-      profile_id: firstProfile?.id ?? '',
-      role: firstProfile?.role && firstProfile.role !== 'guest' ? firstProfile.role : 'front_desk',
+      email: '', password: '', full_name: '', role: 'front_desk',
       department: '', position: '', shift: 'AM',
       hire_date: new Date().toISOString().slice(0, 10),
     })
@@ -61,7 +60,8 @@ export default function StaffPage() {
   function openEdit(s: any) {
     setEditing(s)
     setForm({
-      profile_id: s.profile_id,
+      email: '', password: '',
+      full_name: (s.profiles as any)?.full_name ?? '',
       role: (s.profiles as any)?.role ?? 'front_desk',
       department: s.department ?? '', position: s.position ?? '',
       shift: s.shift ?? 'AM', hire_date: s.hire_date ?? new Date().toISOString().slice(0, 10),
@@ -69,32 +69,61 @@ export default function StaffPage() {
     setShowForm(true)
   }
 
-  async function saveStaff(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.profile_id) { showToast('Please select a user account.'); return }
+    setSubmitting(true)
 
-    const { role, ...staffFields } = form
+    try {
+      if (editing) {
+        // Editing only touches role/full_name (profiles) and staff fields —
+        // no account creation needed here.
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({ role: form.role, full_name: form.full_name })
+          .eq('id', editing.profile_id)
+        if (profileError) throw new Error(profileError.message)
 
-    // The role lives on `profiles`, not `staff` — update it separately.
-    const { error: roleError } = await supabase.from('profiles').update({ role }).eq('id', form.profile_id)
-    if (roleError) { showToast('Error setting role: ' + roleError.message); return }
+        const { error: staffError } = await supabase
+          .from('staff')
+          .update({
+            department: form.department, position: form.position,
+            shift: form.shift, hire_date: form.hire_date,
+          })
+          .eq('id', editing.id)
+        if (staffError) throw new Error(staffError.message)
 
-    if (editing) {
-      const { error } = await supabase.from('staff').update(staffFields).eq('id', editing.id)
-      if (error) { showToast('Error: ' + error.message); return }
-      showToast('Staff record updated.')
-    } else {
-      const employeeCode = `EMP-${Date.now().toString().slice(-5)}`
-      const { error } = await supabase.from('staff').insert({ ...staffFields, employee_code: employeeCode })
-      if (error) { showToast('Error: ' + error.message); return }
-      showToast('Staff record added.')
+        showToast('Staff record updated.')
+      } else {
+        // Creating a new staff member calls our server-side API route,
+        // which uses the admin service role key to create the login,
+        // the profile, and the staff record all at once.
+        if (!form.email || !form.password || !form.full_name) {
+          throw new Error('Email, password, and full name are required.')
+        }
+
+        const res = await fetch('/api/create-staff-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(form),
+        })
+        const result = await res.json()
+
+        if (!res.ok) throw new Error(result.error ?? 'Failed to create staff account.')
+
+        showToast(`Staff account created! ${form.full_name} can now log in with ${form.email}.`)
+      }
+
+      setShowForm(false)
+      load()
+    } catch (err: any) {
+      showToast('Error: ' + err.message)
+    } finally {
+      setSubmitting(false)
     }
-    setShowForm(false)
-    load()
   }
 
   async function deactivate(s: any) {
-    if (!confirm(`Remove ${(s.profiles as any)?.full_name} from active staff list?`)) return
+    if (!confirm(`Remove ${(s.profiles as any)?.full_name} from active staff list? Their login will still work, but they'll no longer appear here.`)) return
     const { error } = await supabase.from('staff').update({ is_active: false }).eq('id', s.id)
     if (error) { showToast('Error: ' + error.message); return }
     showToast('Staff record removed.')
@@ -104,7 +133,7 @@ export default function StaffPage() {
   return (
     <div>
       {toast && (
-        <div className="fixed bottom-6 right-6 bg-white border border-gray-200 rounded-lg px-4 py-3 shadow-lg text-sm z-50 max-w-xs">
+        <div className="fixed bottom-6 right-6 bg-white border border-gray-200 rounded-lg px-4 py-3 shadow-lg text-sm z-50 max-w-sm">
           {toast}
         </div>
       )}
@@ -135,7 +164,7 @@ export default function StaffPage() {
             <tbody>
               {staff.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">
-                  No staff records yet. Click "Add Staff" to link a user account.
+                  No staff yet. Click "Add Staff" to create their account and role.
                 </td></tr>
               ) : staff.map(s => (
                 <tr key={s.id} className="border-b border-gray-50 hover:bg-gray-50">
@@ -160,27 +189,34 @@ export default function StaffPage() {
       )}
 
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowForm(false)}>
-          <form onSubmit={saveStaff} className="bg-white rounded-xl p-5 w-full max-w-sm space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !submitting && setShowForm(false)}>
+          <form onSubmit={handleSubmit} className="bg-white rounded-xl p-5 w-full max-w-sm space-y-3 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="text-sm font-medium text-gray-700 mb-1">{editing ? 'Edit Staff Record' : 'Add Staff'}</div>
 
             {!editing && (
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">User Account</label>
-                <select value={form.profile_id} onChange={e => setForm(p => ({ ...p, profile_id: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white">
-                  <option value="">-- Select --</option>
-                  {unlinkedProfiles.map(p => (
-                    <option key={p.id} value={p.id}>{p.full_name} ({p.role.replace('_', ' ')})</option>
-                  ))}
-                </select>
-                {unlinkedProfiles.length === 0 && (
-                  <div className="text-xs text-amber-600 mt-1">
-                    All existing accounts already have staff records. Create the user in Supabase Authentication first.
-                  </div>
-                )}
-              </div>
+              <>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Email (used to log in)</label>
+                  <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+                    placeholder="staff@aquaverde.ph"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Temporary Password</label>
+                  <input type="text" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+                    placeholder="At least 6 characters"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+                  <div className="text-xs text-gray-400 mt-1">Share this with the staff member — they can change it after logging in.</div>
+                </div>
+              </>
             )}
+
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Full Name</label>
+              <input value={form.full_name} onChange={e => setForm(p => ({ ...p, full_name: e.target.value }))}
+                placeholder="e.g. Maria Santos"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+            </div>
 
             <div>
               <label className="block text-xs text-gray-500 mb-1">Role</label>
@@ -188,9 +224,7 @@ export default function StaffPage() {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white">
                 {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
-              <div className="text-xs text-gray-400 mt-1">
-                This controls what the user can see and do in the system.
-              </div>
+              <div className="text-xs text-gray-400 mt-1">Controls what this user can see and do in the system.</div>
             </div>
 
             <div>
@@ -223,10 +257,10 @@ export default function StaffPage() {
             </div>
 
             <div className="flex gap-2 pt-1">
-              <button type="submit" className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm rounded-lg">
-                {editing ? 'Save Changes' : 'Add Staff'}
+              <button type="submit" disabled={submitting} className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg">
+                {submitting ? 'Saving...' : editing ? 'Save Changes' : 'Create Account'}
               </button>
-              <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">
+              <button type="button" disabled={submitting} onClick={() => setShowForm(false)} className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">
                 Cancel
               </button>
             </div>
