@@ -38,6 +38,7 @@ export const MODULE_ACCESS: Record<string, Role[]> = {
   reports:        ['super_admin', 'resort_owner'],
   settings:       ['super_admin', 'resort_owner'],
   activitylog:    ['super_admin', 'resort_owner'],
+  remittance:     ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
 }
 
 const FULL_ACCESS_ROLES: Role[] = ['super_admin', 'resort_owner']

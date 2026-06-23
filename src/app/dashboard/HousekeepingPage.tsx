@@ -28,6 +28,9 @@ export default function HousekeepingPage() {
   const [toast, setToast] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ room_id: '', task_type: 'cleaning', priority: 'medium', notes: '' })
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'in_progress' | 'completed'>('all')
+
+  const filteredTasks = statusFilter === 'all' ? tasks : tasks.filter(t => t.status === statusFilter)
 
   async function load() {
     setLoading(true)
@@ -76,7 +79,16 @@ export default function HousekeepingPage() {
   async function updateTaskStatus(task: any, status: string) {
     const updates: any = { status }
     if (status === 'in_progress') updates.started_at = new Date().toISOString()
-    if (status === 'completed') updates.completed_at = new Date().toISOString()
+    if (status === 'completed') {
+      updates.completed_at = new Date().toISOString()
+
+      // Record who completed it by pulling current user's profile name
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).single()
+        if (profile) updates.completed_by_name = profile.full_name
+      }
+    }
 
     const { error } = await supabase.from('housekeeping_tasks').update(updates).eq('id', task.id)
     if (error) { showToast('Error: ' + error.message); return }
@@ -154,46 +166,73 @@ export default function HousekeepingPage() {
       {loading ? (
         <div className="text-center py-12 text-gray-400 text-sm">Loading...</div>
       ) : (
-        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
-                <th className="text-left px-4 py-2.5">Room</th>
-                <th className="text-left px-4 py-2.5">Type</th>
-                <th className="text-left px-4 py-2.5">Priority</th>
-                <th className="text-left px-4 py-2.5">Status</th>
-                <th className="text-left px-4 py-2.5">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tasks.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-xs">No tasks found.</td></tr>
-              ) : tasks.map(t => (
-                <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50">
-                  <td className="px-4 py-2.5">
-                    {t.rooms ? `Room ${(t.rooms as any).room_number}` : (t.cottages as any)?.name ?? '—'}
-                  </td>
-                  <td className="px-4 py-2.5 capitalize text-gray-600">{t.task_type.replace('_', ' ')}</td>
-                  <td className="px-4 py-2.5">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${priorityColor[t.priority]}`}>{t.priority}</span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${statusColor[t.status]}`}>{t.status.replace('_', ' ')}</span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {t.status === 'pending' && (
-                      <button onClick={() => updateTaskStatus(t, 'in_progress')} className="px-2.5 py-1 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">Start</button>
-                    )}
-                    {t.status === 'in_progress' && (
-                      <button onClick={() => updateTaskStatus(t, 'completed')} className="px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded-lg">Complete</button>
-                    )}
-                    {t.status === 'completed' && <span className="text-xs text-gray-400">Done</span>}
-                  </td>
+        <>
+          {/* Status filter tabs */}
+          <div className="flex gap-1 mb-3 bg-gray-100 rounded-lg p-1 w-fit">
+            {(['all', 'pending', 'in_progress', 'completed'] as const).map(s => {
+              const count = s === 'all' ? tasks.length : tasks.filter(t => t.status === s).length
+              return (
+                <button key={s} onClick={() => setStatusFilter(s)}
+                  className={`px-3 py-1 rounded-md text-xs capitalize ${statusFilter === s ? 'bg-white font-medium shadow-sm' : 'text-gray-500'}`}>
+                  {s.replace('_', ' ')} ({count})
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+                  <th className="text-left px-4 py-2.5">Room</th>
+                  <th className="text-left px-4 py-2.5">Type</th>
+                  <th className="text-left px-4 py-2.5">Priority</th>
+                  <th className="text-left px-4 py-2.5">Status</th>
+                  <th className="text-left px-4 py-2.5">Created</th>
+                  <th className="text-left px-4 py-2.5">Completed</th>
+                  <th className="text-left px-4 py-2.5">Done by</th>
+                  <th className="text-left px-4 py-2.5">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredTasks.length === 0 ? (
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-xs">No tasks found.</td></tr>
+                ) : filteredTasks.map(t => (
+                  <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-2.5">
+                      {t.rooms ? `Room ${(t.rooms as any).room_number}` : (t.cottages as any)?.name ?? '—'}
+                    </td>
+                    <td className="px-4 py-2.5 capitalize text-gray-600">{t.task_type.replace('_', ' ')}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${priorityColor[t.priority]}`}>{t.priority}</span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${statusColor[t.status]}`}>{t.status.replace('_', ' ')}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-400">
+                      {t.created_at ? new Date(t.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-400">
+                      {t.completed_at ? new Date(t.completed_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">
+                      {t.completed_by_name ?? '—'}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {t.status === 'pending' && (
+                        <button onClick={() => updateTaskStatus(t, 'in_progress')} className="px-2.5 py-1 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">Start</button>
+                      )}
+                      {t.status === 'in_progress' && (
+                        <button onClick={() => updateTaskStatus(t, 'completed')} className="px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded-lg">Complete</button>
+                      )}
+                      {t.status === 'completed' && <span className="text-xs text-gray-400">Done</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   )

@@ -19,6 +19,7 @@ import StaffPage from './StaffPage'
 import BillingPage from './BillingPage'
 import ReportsPage from './ReportsPage'
 import SettingsPage from './SettingsPage'
+import RemittancePage from './RemittancePage'
 import { canAccess, getAccessibleModules, ROLE_LABELS } from './permissions'
 
 const NAV = [
@@ -40,6 +41,7 @@ const NAV = [
   { id: 'billing',      icon: '📄', label: 'Billing' },
   { id: 'reports',      icon: '📈', label: 'Reports' },
   { id: 'settings',     icon: '⚙️', label: 'Settings' },
+  { id: 'remittance',  icon: '🧾', label: 'Remittance' },
 ]
 
 interface Stats {
@@ -63,6 +65,12 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Shift prompt — shown to cashier/front_desk on login if no active shift
+  const [showShiftPrompt, setShowShiftPrompt] = useState(false)
+  const [shiftOpeningFund, setShiftOpeningFund] = useState(0)
+  const [shiftType, setShiftType] = useState('AM')
+  const [openingShift, setOpeningShift] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -92,6 +100,25 @@ export default function DashboardPage() {
       if (!canAccess(prof?.role, page)) {
         setPage('dashboard')
       }
+
+      // Shift prompt: only for cashier and front_desk — not admin/owner
+      const shiftRoles = ['cashier', 'front_desk']
+      if (prof?.role && shiftRoles.includes(prof.role)) {
+        const { data: activeShift } = await supabase
+          .from('shifts')
+          .select('id')
+          .eq('cashier_id', user.id)
+          .eq('status', 'open')
+          .maybeSingle()
+
+        if (!activeShift) {
+          // Auto-detect shift type by time of day
+          const hour = new Date().getHours()
+          const autoShiftType = hour < 12 ? 'AM' : hour < 18 ? 'PM' : 'Night'
+          setShiftType(autoShiftType)
+          setShowShiftPrompt(true)
+        }
+      }
     }
     load()
   }, [])
@@ -118,8 +145,84 @@ export default function DashboardPage() {
     no_show:     'bg-orange-100 text-orange-700',
   }
 
+  async function openShift() {
+    if (!profile) return
+    setOpeningShift(true)
+    const shiftNumber = `SHF-${Date.now().toString().slice(-8)}`
+    const { error } = await supabase.from('shifts').insert({
+      shift_number: shiftNumber,
+      cashier_id: profile.id,
+      cashier_name: profile.full_name,
+      shift_type: shiftType,
+      opening_fund: shiftOpeningFund,
+    })
+    if (error) {
+      setOpeningShift(false)
+      return
+    }
+    setShowShiftPrompt(false)
+    setOpeningShift(false)
+  }
+
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
+
+      {/* Shift opening prompt modal */}
+      {showShiftPrompt && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
+            <div className="text-base font-semibold text-gray-800 mb-1">Start Your Shift</div>
+            <div className="text-xs text-gray-400 mb-4">
+              You don't have an active shift yet. Please confirm your opening fund to begin.
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-xs text-gray-500 mb-1">Shift Type</label>
+              <select value={shiftType} onChange={e => setShiftType(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white">
+                <option value="AM">AM Shift</option>
+                <option value="PM">PM Shift</option>
+                <option value="Night">Night Shift</option>
+              </select>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs text-gray-500 mb-1">Opening Fund (₱)</label>
+              <input
+                type="number"
+                value={shiftOpeningFund || ''}
+                onChange={e => setShiftOpeningFund(parseFloat(e.target.value) || 0)}
+                placeholder="Enter amount received from manager"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
+                autoFocus
+              />
+              <div className="text-xs text-gray-400 mt-1">
+                This is the starting cash given to you by management. Enter 0 if none.
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={openShift}
+                disabled={openingShift}
+                className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg"
+              >
+                {openingShift ? 'Opening...' : 'Confirm & Start Shift'}
+              </button>
+              <button
+                onClick={() => setShowShiftPrompt(false)}
+                className="px-4 py-2.5 border border-gray-200 text-gray-600 rounded-lg text-sm"
+              >
+                Skip
+              </button>
+            </div>
+
+            <div className="text-xs text-gray-400 text-center mt-3">
+              You can also open a shift later from the Remittance module.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sidebar overlay for mobile */}
       {sidebarOpen && (
@@ -369,6 +472,9 @@ export default function DashboardPage() {
 
               {/* SETTINGS */}
               {page === 'settings' && <SettingsPage />}
+
+              {/* REMITTANCE */}
+              {page === 'remittance' && <RemittancePage />}
             </>
           )}
         </main>
