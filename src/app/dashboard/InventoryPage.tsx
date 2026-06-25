@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { usePermissions } from './permissions'
 
 export default function InventoryPage() {
   const supabase = createClient()
+  const { can } = usePermissions()
+  const canManage = can('canManageInventoryCatalog')
   const [items, setItems] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -91,9 +94,11 @@ export default function InventoryPage() {
 
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm font-medium text-gray-700">{items.length} Items</div>
-        <button onClick={openNewItem} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
-          + Add Item
-        </button>
+        {canManage && (
+          <button onClick={openNewItem} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
+            + Add Item
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -134,10 +139,12 @@ export default function InventoryPage() {
                         className="px-2.5 py-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg mr-1">
                         Stock Out
                       </button>
-                      <button onClick={() => deactivateItem(i)}
-                        className="px-2.5 py-1 text-red-400 hover:text-red-600 text-xs">
-                        Remove
-                      </button>
+                      {canManage && (
+                        <button onClick={() => deactivateItem(i)}
+                          className="px-2.5 py-1 text-red-400 hover:text-red-600 text-xs">
+                          Remove
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )

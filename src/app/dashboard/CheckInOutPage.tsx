@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { printReceipt } from './receipt'
-import { createOrUpdateInvoice } from './invoiceUtils'
 
 export default function CheckInOutPage() {
   const supabase = createClient()
@@ -140,6 +139,45 @@ export default function CheckInOutPage() {
       await supabase.from('cottages').update({ status: 'cleaning' }).eq('id', booking.cottage_id)
     }
 
+    // Auto-return any equipment rentals linked to this booking
+    const { data: activeRentals } = await supabase
+      .from('equipment_rentals')
+      .select('id, equipment_id, quantity')
+      .eq('booking_id', booking.id)
+      .is('rental_end', null)  // not yet returned
+
+    if (activeRentals && activeRentals.length > 0) {
+      const returnedAt = new Date().toISOString()
+
+      for (const rental of activeRentals) {
+        // Mark rental as returned
+        await supabase.from('equipment_rentals')
+          .update({
+            rental_end: returnedAt,
+            returned_at: returnedAt,
+            status: 'returned',
+          })
+          .eq('id', rental.id)
+
+        // Add back the quantity to available stock
+        const { data: eq } = await supabase
+          .from('equipment')
+          .select('available_qty')
+          .eq('id', rental.equipment_id)
+          .single()
+
+        if (eq) {
+          await supabase.from('equipment')
+            .update({ available_qty: eq.available_qty + rental.quantity })
+            .eq('id', rental.equipment_id)
+        }
+      }
+
+      // Notify staff on the toast
+      const returnedCount = activeRentals.length
+      console.log(`Auto-returned ${returnedCount} equipment rental(s) for booking ${booking.booking_number}`)
+    }
+
     if (checkoutAmount > 0) {
       await supabase.from('transactions').insert({
         txn_number: `TXN-${Date.now()}`,
@@ -184,25 +222,14 @@ export default function CheckInOutPage() {
         : 'Thank you for staying with us!',
     })
 
-    // Update (or create) the invoice to reflect final payment state.
-    // If invoice was already created at walk-in, this updates it.
-    // If somehow missed (e.g. advance booking checked in without walk-in flow),
-    // this creates it fresh so Billing always has a record.
-    await createOrUpdateInvoice(supabase, {
-      booking_id: booking.id,
-      guest_id: booking.guest_id,
-      subtotal: Number(booking.subtotal),
-      total: Number(booking.total_amount),
-      amount_paid: newAmountPaid,
-      notes: remainingBalance > 0
-        ? `Partial payment at check-out. Balance: ₱${remainingBalance.toLocaleString()}`
-        : 'Fully settled at check-out.',
-    })
+    const returnedEquipment = activeRentals && activeRentals.length > 0
+      ? ` ${activeRentals.length} equipment item(s) auto-returned.`
+      : ''
 
     showToast(
       remainingBalance > 0
-        ? `${guestName} checked out with ₱${remainingBalance.toLocaleString()} balance remaining.`
-        : `${guestName} checked out! Room set to cleaning.`
+        ? `${guestName} checked out with ₱${remainingBalance.toLocaleString()} balance remaining.${returnedEquipment}`
+        : `${guestName} checked out! Room set to cleaning.${returnedEquipment}`
     )
 
     setCheckoutModal(null)

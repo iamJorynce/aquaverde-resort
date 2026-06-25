@@ -145,11 +145,12 @@ export default function WalkInPage() {
       const { data: booking, error: bookingError } = await supabase.from('bookings').insert({
         guest_id: guestId,
         room_id: form.room_id,
+        booking_type: bookingType === 'advance' ? 'online' : 'walk_in',
+        accommodation_type: 'room',
         num_adults: form.num_adults,
         num_children: form.num_children,
         check_in_date: form.check_in_date,
         check_out_date: form.check_out_date,
-        nights,
         subtotal: roomSubtotal,
         extras_total: cottageFee + equipmentFee,
         total_amount: totalBill,

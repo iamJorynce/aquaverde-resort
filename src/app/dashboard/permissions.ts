@@ -21,16 +21,16 @@ export type Role =
 export const MODULE_ACCESS: Record<string, Role[]> = {
   dashboard:      ['super_admin', 'resort_owner', 'front_desk', 'cashier', 'staff', 'housekeeping', 'maintenance', 'restaurant'],
   bookings:       ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
-  walkin:         ['super_admin', 'resort_owner', 'front_desk'],
-  checkinout:     ['super_admin', 'resort_owner', 'front_desk'],
-  rooms:          ['super_admin', 'resort_owner', 'front_desk'],
-  cottages:       ['super_admin', 'resort_owner', 'front_desk'],
+  walkin:         ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
+  checkinout:     ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
+  rooms:          ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
+  cottages:       ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
   dayuse:         ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
   pos:            ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
   restaurant:     ['super_admin', 'resort_owner', 'front_desk', 'cashier', 'restaurant'],
-  housekeeping:   ['super_admin', 'resort_owner', 'front_desk', 'housekeeping'],
-  maintenance:    ['super_admin', 'resort_owner', 'front_desk', 'maintenance'],
-  inventory:      ['super_admin', 'resort_owner', 'front_desk'],
+  housekeeping:   ['super_admin', 'resort_owner', 'front_desk', 'cashier', 'housekeeping'],
+  maintenance:    ['super_admin', 'resort_owner', 'front_desk', 'cashier', 'maintenance'],
+  inventory:      ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
   equipment:      ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
   guests:         ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
   staff:          ['super_admin', 'resort_owner'],
@@ -76,18 +76,28 @@ export const ROLE_LABELS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 export const ACTION_PERMISSIONS = {
-  // Housekeeping: can see and update their assigned tasks, but cannot
-  // create new tasks or see revenue figures on the dashboard.
-  canCreateHousekeepingTask: ['super_admin', 'resort_owner', 'front_desk'] as Role[],
+  // Housekeeping tasks — front_desk and cashier can create/assign tasks
+  canCreateHousekeepingTask: ['super_admin', 'resort_owner', 'front_desk', 'cashier'] as Role[],
   canViewRevenueStats:       ['super_admin', 'resort_owner', 'front_desk', 'cashier'] as Role[],
 
-  // Equipment: only admins manage the equipment catalog (add/edit/remove
-  // equipment types). Front desk and cashier can still rent out/return.
+  // Equipment catalog — admin only can add/edit/remove equipment types
+  // Front desk and cashier can still rent out/return
   canManageEquipmentCatalog: ['super_admin', 'resort_owner'] as Role[],
 
-  // Restaurant: cashier can view order status but not advance/cancel
-  // kitchen orders — that's the restaurant role's job.
-  canManageKitchenOrders:    ['super_admin', 'resort_owner', 'front_desk', 'restaurant'] as Role[],
+  // Restaurant kitchen orders — front_desk and cashier can advance/cancel
+  canManageKitchenOrders:    ['super_admin', 'resort_owner', 'front_desk', 'cashier', 'restaurant'] as Role[],
+
+  // Rooms — admin only can add/edit/delete rooms and room types
+  // Front desk can only view and change status (available/cleaning/etc.)
+  canManageRoomsCatalog:     ['super_admin', 'resort_owner'] as Role[],
+
+  // Cottages — admin only can add/edit/delete cottages
+  // Front desk can only view and change status
+  canManageCottagesCatalog:  ['super_admin', 'resort_owner'] as Role[],
+
+  // Inventory — admin only can add new items and remove/deactivate items
+  // Front desk can still do stock in/out movements
+  canManageInventoryCatalog: ['super_admin', 'resort_owner'] as Role[],
 } as const
 
 export type ActionPermission = keyof typeof ACTION_PERMISSIONS

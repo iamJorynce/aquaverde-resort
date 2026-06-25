@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { usePermissions } from './permissions'
 
 const statusColor: Record<string, string> = {
   available:   'bg-green-100 text-green-700',
@@ -23,6 +24,8 @@ const typeLabel: Record<string, string> = {
 
 export default function CottagesPage() {
   const supabase = createClient()
+  const { can } = usePermissions()
+  const canManage = can('canManageCottagesCatalog')
   const [cottages, setCottages] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
@@ -120,9 +123,11 @@ export default function CottagesPage() {
               </span>
             ))}
           </div>
-          <button onClick={openNew} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg whitespace-nowrap">
-            + Add Cottage
-          </button>
+          {canManage && (
+            <button onClick={openNew} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg whitespace-nowrap">
+              + Add Cottage
+            </button>
+          )}
         </div>
       </div>
 
@@ -132,13 +137,15 @@ export default function CottagesPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {cottages.length === 0 ? (
             <div className="col-span-full text-center py-12 text-gray-400 text-sm">
-              No cottages found. Add some via the Supabase Table Editor.
+              No cottages found.
             </div>
           ) : cottages.map(c => (
             <div key={c.id} className="bg-white border border-gray-100 rounded-xl p-3">
               <div className="flex items-start justify-between">
                 <div className="text-lg font-semibold text-gray-800">{c.cottage_code}</div>
-                <button onClick={() => openEdit(c)} className="text-gray-400 hover:text-gray-600 text-xs">Edit</button>
+                {canManage && (
+                  <button onClick={() => openEdit(c)} className="text-gray-400 hover:text-gray-600 text-xs">Edit</button>
+                )}
               </div>
               <div className="text-xs text-gray-500 mb-1">{typeLabel[c.type] ?? c.type} — {c.capacity} pax</div>
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[c.status] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -158,7 +165,9 @@ export default function CottagesPage() {
                 <option value="cleaning">Cleaning</option>
                 <option value="maintenance">Maintenance</option>
               </select>
-              <button onClick={() => deleteCottage(c)} className="text-xs text-red-400 hover:text-red-600 mt-2">Delete</button>
+              {canManage && (
+                <button onClick={() => deleteCottage(c)} className="text-xs text-red-400 hover:text-red-600 mt-2">Delete</button>
+              )}
             </div>
           ))}
         </div>

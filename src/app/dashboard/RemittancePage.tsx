@@ -75,14 +75,41 @@ export default function RemittancePage() {
     setActiveShift(shift)
 
     if (shift) {
-      // Load transactions during this shift
-      const { data: txns } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('shift_id', shift.id)
-        .eq('voided', false)
-        .order('created_at')
-      setShiftTxns(txns ?? [])
+      // Load ALL transactions within the shift time range — regardless of
+      // whether they have a shift_id tag. This includes walk-in, check-out,
+      // POS, day use, and equipment rental payments.
+      const shiftStart = shift.opened_at
+      const shiftEnd = shift.closed_at ?? new Date().toISOString()
+
+      const [{ data: txns }, { data: dayUseTxns }] = await Promise.all([
+        supabase
+          .from('transactions')
+          .select('amount, payment_method, txn_type, description, created_at')
+          .gte('created_at', shiftStart)
+          .lte('created_at', shiftEnd)
+          .eq('voided', false)
+          .order('created_at'),
+        supabase
+          .from('day_use_entries')
+          .select('total_amount, payment_method, entry_number, created_at')
+          .gte('created_at', shiftStart)
+          .lte('created_at', shiftEnd)
+          .order('created_at'),
+      ])
+
+      // Normalize day_use_entries into the same shape as transactions
+      const normalizedDayUse = (dayUseTxns ?? []).map((d: any) => ({
+        amount: d.total_amount,
+        payment_method: d.payment_method ?? 'cash',
+        txn_type: 'day_use',
+        description: `Day Use Entry ${d.entry_number}`,
+        created_at: d.created_at,
+      }))
+
+      const allTxns = [...(txns ?? []), ...normalizedDayUse]
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+
+      setShiftTxns(allTxns)
 
       // Check if there's already a draft remittance for this shift
       const { data: draft } = await supabase
@@ -149,13 +176,35 @@ export default function RemittancePage() {
     if (!activeShift) return
     setLoading(true)
 
-    // Close the shift
-    await supabase.from('shifts').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', activeShift.id)
+    const closedAt = new Date().toISOString()
 
-    // Compute collections from shift transactions
-    const txns = shiftTxns
-    const gross = txns.reduce((s, t) => s + Number(t.amount), 0)
-    const byMethod = txns.reduce((acc: any, t) => {
+    // Close the shift first
+    await supabase.from('shifts').update({ status: 'closed', closed_at: closedAt }).eq('id', activeShift.id)
+
+    // Re-fetch ALL transactions within the shift time range for accurate totals
+    const shiftStart = activeShift.opened_at
+
+    const [{ data: txns }, { data: dayUseTxns }] = await Promise.all([
+      supabase
+        .from('transactions')
+        .select('amount, payment_method, txn_type')
+        .gte('created_at', shiftStart)
+        .lte('created_at', closedAt)
+        .eq('voided', false),
+      supabase
+        .from('day_use_entries')
+        .select('total_amount, payment_method')
+        .gte('created_at', shiftStart)
+        .lte('created_at', closedAt),
+    ])
+
+    const allTxns = [
+      ...(txns ?? []).map((t: any) => ({ amount: t.amount, payment_method: t.payment_method ?? 'other' })),
+      ...(dayUseTxns ?? []).map((d: any) => ({ amount: d.total_amount, payment_method: d.payment_method ?? 'cash' })),
+    ]
+
+    const gross = allTxns.reduce((s, t) => s + Number(t.amount), 0)
+    const byMethod = allTxns.reduce((acc: any, t) => {
       const m = t.payment_method ?? 'other'
       acc[m] = (acc[m] ?? 0) + Number(t.amount)
       return acc
@@ -429,19 +478,40 @@ ${rem.approved_at ? `<div class="row small"><span>Approved at</span><span>${new 
                   Collections This Shift ({shiftTxns.length} transactions)
                 </div>
                 <div className="space-y-1.5 text-sm mb-3">
-                  <div className="flex justify-between"><span className="text-gray-400">Gross Collections</span><span className="font-medium">₱{grossCollections.toLocaleString()}</span></div>
-                  {Object.entries(byMethod).map(([method, amount]) => (
-                    <div key={method} className="flex justify-between text-xs">
-                      <span className="text-gray-400 capitalize pl-3">— {method.replace('_', ' ')}</span>
-                      <span>₱{Number(amount).toLocaleString()}</span>
+                  <div className="flex justify-between font-medium text-gray-700">
+                    <span>Gross Collections</span>
+                    <span>₱{grossCollections.toLocaleString()}</span>
+                  </div>
+
+                  {/* By transaction type */}
+                  {Object.entries(
+                    shiftTxns.reduce((acc: any, t) => {
+                      const type = t.txn_type ?? 'other'
+                      acc[type] = (acc[type] ?? 0) + Number(t.amount)
+                      return acc
+                    }, {})
+                  ).map(([type, amount]) => (
+                    <div key={type} className="flex justify-between text-xs pl-3">
+                      <span className="text-gray-400 capitalize">{type.replace(/_/g, ' ')}</span>
+                      <span className="text-gray-600">₱{Number(amount).toLocaleString()}</span>
                     </div>
                   ))}
+
+                  <div className="border-t border-gray-100 pt-1.5 mt-1">
+                    <div className="text-xs font-medium text-gray-500 mb-1">By Payment Method</div>
+                    {Object.entries(byMethod).map(([method, amount]) => (
+                      <div key={method} className="flex justify-between text-xs pl-3">
+                        <span className="text-gray-400 capitalize">{method.replace(/_/g, ' ')}</span>
+                        <span className="text-gray-600">₱{Number(amount).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div className="max-h-40 overflow-y-auto">
-                  {shiftTxns.map(t => (
-                    <div key={t.id} className="flex justify-between text-xs py-1 border-t border-gray-50">
-                      <span className="text-gray-500">{t.description?.slice(0, 30)}</span>
-                      <span className="text-gray-700">₱{Number(t.amount).toLocaleString()}</span>
+                  {shiftTxns.map((t, i) => (
+                    <div key={i} className="flex justify-between text-xs py-1 border-t border-gray-50">
+                      <span className="text-gray-500 truncate max-w-[200px]">{t.description ?? t.txn_type}</span>
+                      <span className="text-gray-700 ml-2">₱{Number(t.amount).toLocaleString()}</span>
                     </div>
                   ))}
                 </div>

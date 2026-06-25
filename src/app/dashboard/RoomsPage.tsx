@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { usePermissions } from './permissions'
 
 const statusColor: Record<string, string> = {
   available:   'bg-green-100 text-green-700',
@@ -14,6 +15,8 @@ const statusColor: Record<string, string> = {
 
 export default function RoomsPage() {
   const supabase = createClient()
+  const { can } = usePermissions()
+  const canManage = can('canManageRoomsCatalog')
   const [rooms, setRooms] = useState<any[]>([])
   const [roomTypes, setRoomTypes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -160,20 +163,24 @@ export default function RoomsPage() {
       <div className="bg-white border border-gray-100 rounded-xl p-4 mb-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-sm font-medium text-gray-700">Room Types</div>
-          <button onClick={openNewType} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
-            + Add Room Type
-          </button>
+          {canManage && (
+            <button onClick={openNewType} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
+              + Add Room Type
+            </button>
+          )}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {roomTypes.map(rt => (
             <div key={rt.id} className="border border-gray-100 rounded-lg p-2.5">
               <div className="text-sm font-medium text-gray-700">{rt.name}</div>
               <div className="text-xs text-gray-400">₱{Number(rt.base_rate).toLocaleString()}/night · {rt.max_capacity} pax</div>
-              <div className="flex gap-1 mt-1.5">
-                <button onClick={() => openEditType(rt)} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
-                <span className="text-xs text-gray-300">·</span>
-                <button onClick={() => deactivateType(rt)} className="text-xs text-red-500 hover:text-red-700">Deactivate</button>
-              </div>
+              {canManage && (
+                <div className="flex gap-1 mt-1.5">
+                  <button onClick={() => openEditType(rt)} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
+                  <span className="text-xs text-gray-300">·</span>
+                  <button onClick={() => deactivateType(rt)} className="text-xs text-red-500 hover:text-red-700">Deactivate</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -187,9 +194,11 @@ export default function RoomsPage() {
           placeholder="Search room number..."
           className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white w-48"
         />
-        <button onClick={openNewRoom} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg whitespace-nowrap">
-          + Add Room
-        </button>
+        {canManage && (
+          <button onClick={openNewRoom} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg whitespace-nowrap">
+            + Add Room
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -202,7 +211,9 @@ export default function RoomsPage() {
             <div key={r.id} className="bg-white border border-gray-100 rounded-xl p-3">
               <div className="flex items-start justify-between">
                 <div className="text-lg font-semibold text-gray-800">Room {r.room_number}</div>
-                <button onClick={() => openEditRoom(r)} className="text-gray-400 hover:text-gray-600 text-xs">Edit</button>
+                {canManage && (
+                  <button onClick={() => openEditRoom(r)} className="text-gray-400 hover:text-gray-600 text-xs">Edit</button>
+                )}
               </div>
               <div className="text-xs text-gray-500 mb-2">{(r.room_types_config as any)?.name ?? 'Unassigned'}</div>
               <select
@@ -220,7 +231,9 @@ export default function RoomsPage() {
               <div className="text-xs text-blue-600 font-medium mt-2">
                 ₱{Number((r.room_types_config as any)?.base_rate ?? 0).toLocaleString()}/night
               </div>
-              <button onClick={() => deleteRoom(r)} className="text-xs text-red-400 hover:text-red-600 mt-2">Delete</button>
+              {canManage && (
+                <button onClick={() => deleteRoom(r)} className="text-xs text-red-400 hover:text-red-600 mt-2">Delete</button>
+              )}
             </div>
           ))}
         </div>
