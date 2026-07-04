@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import PaymentCalculator from './PaymentCalculator'
+import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import { logActivity } from './activityLog'
 import { usePermissions } from './permissions'
 
@@ -162,6 +162,9 @@ export default function DayUsePage() {
     setLoading(true)
     setError('')
 
+    const paymentError = paymentValidationMessage(payment.method, total, payment.amountTendered)
+    if (paymentError) { setError(paymentError); setLoading(false); return }
+
     try {
       const entryNumber = `DU-${Date.now()}`
       const wristbands = Array.from({ length: totalPax }, (_, i) =>
@@ -204,6 +207,32 @@ export default function DayUsePage() {
 
       if (insertError) throw insertError
 
+      // Create a booking record for the day use entry so it appears in
+      // check-in/out flow and equipment auto-return works on check-out
+      // Compute total pax per type across all areas
+const totalAdults   = areas.reduce((s, a) => s + (areaCounts[a]?.adult  ?? 0), 0)
+const totalChildren = areas.reduce((s, a) => s + (areaCounts[a]?.child  ?? 0), 0)
+const totalSeniors  = areas.reduce((s, a) => s + (areaCounts[a]?.senior ?? 0), 0)
+const totalPwd      = areas.reduce((s, a) => s + (areaCounts[a]?.pwd    ?? 0), 0)
+
+const { data: dayUseBooking, error: bookingError } = await supabase.from('bookings').insert({
+  guest_id: null,
+  booking_type: 'walk_in',
+  accommodation_type: 'day_use',
+  num_adults:   totalAdults,    // ← TAMA — gikan sa areaCounts
+  num_children: totalChildren,  // ← TAMA
+  num_seniors:  totalSeniors,   // ← TAMA
+  num_pwd:      totalPwd,       // ← TAMA
+  check_in_date: new Date().toISOString().slice(0, 10),
+  check_out_date: new Date().toISOString().slice(0, 10),
+  total_amount: total,
+  amount_paid: total,
+  payment_status: 'paid',
+  status: 'checked_in',
+  special_requests: form.guest_name ? `Day Use Guest: ${form.guest_name}${form.guest_phone ? ` (${form.guest_phone})` : ''}` : null,
+}).select().single()
+if (bookingError) throw new Error('Booking insert failed: ' + bookingError.message)
+
       await supabase.from('transactions').insert({
         txn_number: `TXN-${Date.now()}`,
         day_use_id: entry.id,
@@ -223,6 +252,7 @@ export default function DayUsePage() {
         await supabase.from('equipment_rentals').insert({
           rental_number: `RNT-${Date.now()}-${line.id.slice(0, 4)}`,
           equipment_id: line.id,
+          booking_id: dayUseBooking?.id ?? null,  // link to day use booking for auto-return
           quantity: line.quantity,
           rate_type: line.rateType,
           rate_amount: line.rateType === 'hourly' ? item.hourly_rate : item.daily_rate,
@@ -498,7 +528,7 @@ export default function DayUsePage() {
               onAmountTenderedChange={a => setPayment(p => ({ ...p, amountTendered: a }))}
             />
 
-            <button type="submit" disabled={loading || totalPax === 0}
+            <button type="submit" disabled={loading || totalPax === 0 || !isPaymentValid(payment.method, total, payment.amountTendered)}
               className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg">
               {loading ? 'Processing...' : `Record Entry & Payment (₱${total.toLocaleString()})`}
             </button>

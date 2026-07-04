@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { printReceipt } from './receipt'
-import PaymentCalculator from './PaymentCalculator'
+import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import { logActivity } from './activityLog'
 import { createOrUpdateInvoice } from './invoiceUtils'
 
@@ -123,6 +123,10 @@ export default function WalkInPage() {
     setLoading(true)
     setError('')
 
+    // Validate payment before proceeding
+    const paymentError = paymentValidationMessage(payment.method, amountDueNow, payment.amountTendered)
+    if (paymentError) { setError(paymentError); setLoading(false); return }
+
     try {
       // 1. Upsert guest
       const { data: existingGuest } = await supabase.from('guests')
@@ -189,7 +193,14 @@ export default function WalkInPage() {
         })
         await supabase.from('equipment').update({ available_qty: item.available_qty - line.quantity }).eq('id', line.id)
         await supabase.from('booking_addons').insert({ booking_id: booking.id, name: `${line.name} × ${line.quantity}`, quantity: line.units, unit_price: line.amount / line.units })
-        await supabase.from('bookings').update({ extras_total: supabase.rpc('extras_total', {}), total_amount: totalBill }).eq('id', booking.id)
+      }
+
+      // Update booking extras_total with all equipment fees
+      if (equipmentLines.length > 0) {
+        await supabase.from('bookings').update({
+          extras_total: cottageFee + equipmentFee,
+          total_amount: totalBill,
+        }).eq('id', booking.id)
       }
 
       // 6. Transaction
@@ -488,7 +499,7 @@ export default function WalkInPage() {
               onAmountTenderedChange={a => setPayment(p => ({ ...p, amountTendered: a }))}
             />
 
-            <button type="submit" disabled={loading}
+            <button type="submit" disabled={loading || !isPaymentValid(payment.method, amountDueNow, payment.amountTendered)}
               className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg">
               {loading ? 'Processing...' : bookingType === 'advance' ? `Confirm Booking & Collect Reservation Fee (₱${reservationFee.toLocaleString()})` : `Register Walk-in & Collect Full Payment (₱${totalBill.toLocaleString()})`}
             </button>

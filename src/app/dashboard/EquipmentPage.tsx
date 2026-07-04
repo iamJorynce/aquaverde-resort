@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermissions } from './permissions'
-import PaymentCalculator from './PaymentCalculator'
+import PaymentCalculator, { isPaymentValid } from './PaymentCalculator'
 import { logActivity } from './activityLog'
 
 export default function EquipmentPage() {
@@ -334,7 +334,9 @@ export default function EquipmentPage() {
             />
 
             <div className="flex gap-2 pt-1">
-              <button onClick={confirmRent} className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm rounded-lg">
+              <button onClick={confirmRent}
+                disabled={!isPaymentValid(rentPayment.method, rentTotal(), rentPayment.amountTendered)}
+                className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg">
                 Confirm Rental & Payment
               </button>
               <button onClick={() => setRentModal(null)} className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">

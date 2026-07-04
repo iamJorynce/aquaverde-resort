@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { printReceipt } from './receipt'
-import PaymentCalculator from './PaymentCalculator'
+import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import { logActivity } from './activityLog'
 import { usePermissions } from './permissions'
 
@@ -72,6 +72,13 @@ export default function POSPage() {
 
   async function processPayment() {
     if (cart.length === 0) { showToast('No items in cart.'); return }
+
+    // For direct payment (not room charge), validate cash amount
+    if (!chargeToBooking) {
+      const paymentError = paymentValidationMessage(paymentMethod, subtotal, amountTendered)
+      if (paymentError) { showToast(paymentError); return }
+    }
+
     setLoading(true)
     try {
       const orderNumber = `ORD-${Date.now()}`
@@ -416,7 +423,8 @@ export default function POSPage() {
                 </div>
               )}
 
-              <button onClick={processPayment} disabled={loading || cart.length === 0}
+              <button onClick={processPayment}
+                disabled={loading || cart.length === 0 || (!chargeToBooking && !isPaymentValid(paymentMethod, subtotal, amountTendered))}
                 className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg mt-3">
                 {loading ? 'Processing...' : chargeToBooking ? 'Charge to Room' : `Process Payment ₱${subtotal.toLocaleString()}`}
               </button>

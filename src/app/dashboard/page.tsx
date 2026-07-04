@@ -20,6 +20,7 @@ import BillingPage from './BillingPage'
 import ReportsPage from './ReportsPage'
 import SettingsPage from './SettingsPage'
 import RemittancePage from './RemittancePage'
+import BookingsPanel from './BookingsPanel'
 import { canAccess, getAccessibleModules, ROLE_LABELS } from './permissions'
 
 const NAV = [
@@ -391,41 +392,7 @@ export default function DashboardPage() {
 
               {/* BOOKINGS */}
               {page === 'bookings' && (
-                <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                  <div className="px-4 py-3 border-b border-gray-100 text-sm font-medium text-gray-700">All Bookings</div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
-                          <th className="text-left px-4 py-2.5 font-medium">Booking #</th>
-                          <th className="text-left px-4 py-2.5 font-medium">Guest</th>
-                          <th className="text-left px-4 py-2.5 font-medium">Check-in</th>
-                          <th className="text-left px-4 py-2.5 font-medium">Check-out</th>
-                          <th className="text-left px-4 py-2.5 font-medium">Status</th>
-                          <th className="text-left px-4 py-2.5 font-medium">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bookings.length === 0 ? (
-                          <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">No bookings yet</td></tr>
-                        ) : bookings.map(b => (
-                          <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
-                            <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
-                            <td className="px-4 py-2.5">{(b.guests as any)?.full_name ?? '—'}</td>
-                            <td className="px-4 py-2.5 text-gray-500">{b.check_in_date}</td>
-                            <td className="px-4 py-2.5 text-gray-500">{b.check_out_date}</td>
-                            <td className="px-4 py-2.5">
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${bookingStatusColor[b.status] ?? ''}`}>
-                                {b.status.replace('_', ' ')}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5">₱{Number(b.total_amount).toLocaleString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                <BookingsPanel />
               )}
 
               {/* WALK-IN */}

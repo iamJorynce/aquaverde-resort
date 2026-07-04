@@ -3,180 +3,233 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { printReceipt } from './receipt'
+import { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
+import PaymentCalculator from './PaymentCalculator'
+import { createOrUpdateInvoice } from './invoiceUtils'
 
 export default function CheckInOutPage() {
   const supabase = createClient()
-  const [tab, setTab] = useState<'in' | 'active' | 'out'>('in')
-  const [pendingCheckins, setPendingCheckins] = useState<any[]>([])
-  const [activeStays, setActiveStays] = useState<any[]>([])
+  const [tab, setTab] = useState<'in' | 'active' | 'out' | 'dayuse'>('in')
+  const [pendingCheckins, setPendingCheckins]   = useState<any[]>([])
+  const [activeStays, setActiveStays]           = useState<any[]>([])
   const [pendingCheckouts, setPendingCheckouts] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [toast, setToast] = useState('')
-  const [billDetail, setBillDetail] = useState<{ booking: any; addons: any[] } | null>(null)
-  const [loadingBill, setLoadingBill] = useState(false)
+  const [activeDayUse, setActiveDayUse]         = useState<any[]>([])
+  const [loading, setLoading]                   = useState(true)
+  const [toast, setToast]                       = useState('')
 
-  const [checkoutModal, setCheckoutModal] = useState<{ booking: any; addons: any[] } | null>(null)
-  const [checkoutAmount, setCheckoutAmount] = useState(0)
-  const [checkoutMethod, setCheckoutMethod] = useState('cash')
+  // Bill detail modal (view-only)
+  const [billDetail, setBillDetail]   = useState<{ booking: any; addons: any[] } | null>(null)
+
+  // Checkout payment modal
+  const [checkoutModal, setCheckoutModal]         = useState<{ booking: any; addons: any[] } | null>(null)
+  const [checkoutAmount, setCheckoutAmount]       = useState(0)
+  const [checkoutMethod, setCheckoutMethod]       = useState('cash')
   const [processingCheckout, setProcessingCheckout] = useState(false)
 
+  // Equipment damage check modal
+  const [equipmentCheckModal, setEquipmentCheckModal] = useState<any[]>([])
+  const [equipmentConditions, setEquipmentConditions] = useState<Record<string, {
+    condition: 'good' | 'damaged'; notes: string; charge: number
+  }>>({})
+  const [pendingCheckoutBooking, setPendingCheckoutBooking] = useState<any>(null)
+
+  // ---- Load ----
   async function load() {
     setLoading(true)
     const today = new Date().toISOString().slice(0, 10)
 
-    const [{ data: checkins }, { data: active }, { data: checkouts }] = await Promise.all([
-      // Bookings due to arrive (today or earlier) that haven't checked in yet
-      supabase
-        .from('bookings')
+    const [{ data: checkins }, { data: active }, { data: checkouts }, { data: dayUse }] = await Promise.all([
+      // Pending check-ins (reserved/confirmed, due today or earlier)
+      supabase.from('bookings')
         .select('*, guests(full_name, phone), rooms(room_number), cottages(name, cottage_code)')
-        .in('status', ['pending', 'confirmed'])
-        .lte('check_in_date', today),
-      // All guests currently staying (checked in, not yet checked out)
-      supabase
-        .from('bookings')
+        .in('status', ['pending', 'confirmed', 'reserved'])
+        .lte('check_in_date', today)
+        .not('accommodation_type', 'eq', 'day_use'),
+
+      // Active overnight stays only — NOT day_use
+      supabase.from('bookings')
         .select('*, guests(full_name, phone), rooms(room_number, id), cottages(name, cottage_code, id)')
         .eq('status', 'checked_in')
+        .not('accommodation_type', 'eq', 'day_use')
         .order('check_out_date'),
-      // Guests scheduled to check out today (or overdue)
-      supabase
-        .from('bookings')
+
+      // Due for check-out today (overnight only)
+      supabase.from('bookings')
         .select('*, guests(full_name, phone), rooms(room_number, id), cottages(name, cottage_code, id)')
         .eq('status', 'checked_in')
+        .not('accommodation_type', 'eq', 'day_use')
         .lte('check_out_date', today),
+
+      // Day use ONLY — currently checked in
+      supabase.from('bookings')
+        .select('id, booking_number, special_requests, created_at, check_in_date, num_adults, num_children, num_seniors, num_pwd')
+        .eq('accommodation_type', 'day_use')
+        .eq('status', 'checked_in')
+        .order('created_at', { ascending: false }),
     ])
+
+    // Fetch active equipment rentals per day use booking
+    const dayUseWithEquipment = await Promise.all(
+      (dayUse ?? []).map(async (b: any) => {
+        const { data: rentals } = await supabase
+          .from('equipment_rentals')
+          .select('id, equipment_id, quantity, rental_start, equipment(name)')
+          .eq('booking_id', b.id)
+          .is('rental_end', null)
+        return { ...b, rentals: rentals ?? [] }
+      })
+    )
 
     setPendingCheckins(checkins ?? [])
     setActiveStays(active ?? [])
     setPendingCheckouts(checkouts ?? [])
+    setActiveDayUse(dayUseWithEquipment)
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
 
-  function showToast(msg: string) {
-    setToast(msg)
-    setTimeout(() => setToast(''), 3000)
-  }
+  function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000) }
 
+  // ---- Check-in ----
   async function handleCheckIn(booking: any) {
     const wristband = `WB-${Date.now().toString().slice(-6)}`
-
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        status: 'checked_in',
-        actual_check_in: new Date().toISOString(),
-        wristband_number: wristband,
-      })
-      .eq('id', booking.id)
-
+    const { error } = await supabase.from('bookings').update({
+      status: 'checked_in',
+      actual_check_in: new Date().toISOString(),
+      wristband_number: wristband,
+    }).eq('id', booking.id)
     if (error) { showToast('Error: ' + error.message); return }
-
-    if (booking.room_id) {
-      await supabase.from('rooms').update({ status: 'occupied' }).eq('id', booking.room_id)
-    }
-    if (booking.cottage_id) {
-      await supabase.from('cottages').update({ status: 'occupied' }).eq('id', booking.cottage_id)
-    }
-
+    if (booking.room_id) await supabase.from('rooms').update({ status: 'occupied' }).eq('id', booking.room_id)
+    if (booking.cottage_id) await supabase.from('cottages').update({ status: 'occupied' }).eq('id', booking.cottage_id)
     showToast(`${(booking.guests as any)?.full_name} checked in! Wristband: ${wristband}`)
     load()
   }
 
+  // ---- View bill ----
   async function viewBill(booking: any) {
-    setLoadingBill(true)
     const { data: addons } = await supabase
-      .from('booking_addons')
-      .select('*')
-      .eq('booking_id', booking.id)
-      .order('created_at')
+      .from('booking_addons').select('*').eq('booking_id', booking.id).order('created_at')
     setBillDetail({ booking, addons: addons ?? [] })
-    setLoadingBill(false)
   }
 
+  // ---- Open checkout modal (checks for equipment first) ----
   async function openCheckoutModal(booking: any) {
     const balance = Math.max(0, booking.total_amount - booking.amount_paid)
+    const [{ data: addons }, { data: rentals }] = await Promise.all([
+      supabase.from('booking_addons').select('*').eq('booking_id', booking.id).order('created_at'),
+      supabase.from('equipment_rentals')
+        .select('id, equipment_id, quantity, equipment(name)')
+        .eq('booking_id', booking.id)
+        .is('rental_end', null),
+    ])
 
-    const { data: addons } = await supabase
-      .from('booking_addons')
-      .select('*')
-      .eq('booking_id', booking.id)
-      .order('created_at')
+    if (rentals && rentals.length > 0) {
+      setEquipmentCheckModal(rentals)
+      setEquipmentConditions(Object.fromEntries(
+        rentals.map((r: any) => [r.id, { condition: 'good', notes: '', charge: 0 }])
+      ))
+      setPendingCheckoutBooking({ booking, addons: addons ?? [], balance })
+    } else {
+      setCheckoutModal({ booking, addons: addons ?? [] })
+      setCheckoutAmount(balance)
+      setCheckoutMethod('cash')
+    }
+  }
 
-    setCheckoutModal({ booking, addons: addons ?? [] })
-    setCheckoutAmount(balance)
+  // ---- Confirm equipment check (handles both overnight and day use) ----
+  async function confirmEquipmentCheck() {
+    if (!pendingCheckoutBooking) return
+    const returnedAt = new Date().toISOString()
+
+    for (const rental of equipmentCheckModal) {
+      const cond = equipmentConditions[rental.id]
+      await supabase.from('equipment_rentals').update({
+        rental_end: returnedAt,
+        returned_at: returnedAt,
+        status: cond?.condition === 'damaged' ? 'damaged' : 'returned',
+        condition_notes: cond?.notes || null,
+        damage_charge: cond?.charge ?? 0,
+      }).eq('id', rental.id)
+
+      const { data: eq } = await supabase.from('equipment').select('available_qty').eq('id', rental.equipment_id).single()
+      if (eq) await supabase.from('equipment').update({ available_qty: eq.available_qty + rental.quantity }).eq('id', rental.equipment_id)
+
+      if (cond?.condition === 'damaged' && cond.charge > 0) {
+        await supabase.from('booking_addons').insert({
+          booking_id: pendingCheckoutBooking.booking.id,
+          name: `Damage charge — ${(rental.equipment as any)?.name}`,
+          quantity: 1,
+          unit_price: cond.charge,
+        })
+        await supabase.from('bookings').update({
+          total_amount: Number(pendingCheckoutBooking.booking.total_amount) + cond.charge,
+          extras_total: Number(pendingCheckoutBooking.booking.extras_total ?? 0) + cond.charge,
+        }).eq('id', pendingCheckoutBooking.booking.id)
+      }
+    }
+
+    const { data: updatedBooking } = await supabase
+      .from('bookings')
+      .select('*, guests(full_name, phone), rooms(room_number, id), cottages(name, cottage_code, id)')
+      .eq('id', pendingCheckoutBooking.booking.id)
+      .single()
+
+    const finalBooking = updatedBooking ?? pendingCheckoutBooking.booking
+    const damageTotal = Object.values(equipmentConditions).reduce((s, c) => s + (c.charge ?? 0), 0)
+
+    setEquipmentCheckModal([])
+    setPendingCheckoutBooking(null)
+
+    // Day use: go straight to checked_out after equipment return
+    if (finalBooking.accommodation_type === 'day_use') {
+      await supabase.from('bookings').update({
+        status: 'checked_out',
+        actual_check_out: returnedAt,
+      }).eq('id', finalBooking.id)
+
+      if (damageTotal > 0) {
+        await supabase.from('transactions').insert({
+          txn_number: `TXN-${Date.now()}`,
+          booking_id: finalBooking.id,
+          txn_type: 'room',
+          description: `Damage charges — ${finalBooking.booking_number}`,
+          amount: damageTotal,
+          payment_method: 'cash',
+        })
+      }
+      showToast(`Equipment returned.${damageTotal > 0 ? ` Damage charge: ₱${damageTotal.toLocaleString()}` : ' All items in good condition.'}`)
+      load()
+      return
+    }
+
+    // Overnight: proceed to payment modal
+    const { data: updatedAddons } = await supabase.from('booking_addons').select('*').eq('booking_id', finalBooking.id).order('created_at')
+    setCheckoutModal({ booking: finalBooking, addons: updatedAddons ?? [] })
+    setCheckoutAmount(Math.max(0, finalBooking.total_amount - finalBooking.amount_paid))
     setCheckoutMethod('cash')
   }
 
+  // ---- Confirm checkout (overnight) ----
   async function confirmCheckout() {
     if (!checkoutModal) return
     const { booking, addons } = checkoutModal
-    const balanceBefore = Math.max(0, booking.total_amount - booking.amount_paid)
-
-    if (checkoutAmount < 0) { showToast('Amount cannot be negative.'); return }
-
     setProcessingCheckout(true)
 
     const newAmountPaid = Number(booking.amount_paid) + Number(checkoutAmount)
     const remainingBalance = Math.max(0, booking.total_amount - newAmountPaid)
 
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        status: 'checked_out',
-        actual_check_out: new Date().toISOString(),
-        amount_paid: newAmountPaid,
-        payment_status: remainingBalance > 0 ? 'partial' : 'paid',
-      })
-      .eq('id', booking.id)
+    const { error } = await supabase.from('bookings').update({
+      status: 'checked_out',
+      actual_check_out: new Date().toISOString(),
+      amount_paid: newAmountPaid,
+      payment_status: remainingBalance > 0 ? 'partial' : 'paid',
+    }).eq('id', booking.id)
 
     if (error) { showToast('Error: ' + error.message); setProcessingCheckout(false); return }
 
-    if (booking.room_id) {
-      await supabase.from('rooms').update({ status: 'cleaning' }).eq('id', booking.room_id)
-    }
-    if (booking.cottage_id) {
-      await supabase.from('cottages').update({ status: 'cleaning' }).eq('id', booking.cottage_id)
-    }
-
-    // Auto-return any equipment rentals linked to this booking
-    const { data: activeRentals } = await supabase
-      .from('equipment_rentals')
-      .select('id, equipment_id, quantity')
-      .eq('booking_id', booking.id)
-      .is('rental_end', null)  // not yet returned
-
-    if (activeRentals && activeRentals.length > 0) {
-      const returnedAt = new Date().toISOString()
-
-      for (const rental of activeRentals) {
-        // Mark rental as returned
-        await supabase.from('equipment_rentals')
-          .update({
-            rental_end: returnedAt,
-            returned_at: returnedAt,
-            status: 'returned',
-          })
-          .eq('id', rental.id)
-
-        // Add back the quantity to available stock
-        const { data: eq } = await supabase
-          .from('equipment')
-          .select('available_qty')
-          .eq('id', rental.equipment_id)
-          .single()
-
-        if (eq) {
-          await supabase.from('equipment')
-            .update({ available_qty: eq.available_qty + rental.quantity })
-            .eq('id', rental.equipment_id)
-        }
-      }
-
-      // Notify staff on the toast
-      const returnedCount = activeRentals.length
-      console.log(`Auto-returned ${returnedCount} equipment rental(s) for booking ${booking.booking_number}`)
-    }
+    if (booking.room_id)    await supabase.from('rooms').update({ status: 'cleaning' }).eq('id', booking.room_id)
+    if (booking.cottage_id) await supabase.from('cottages').update({ status: 'cleaning' }).eq('id', booking.cottage_id)
 
     if (checkoutAmount > 0) {
       await supabase.from('transactions').insert({
@@ -184,22 +237,27 @@ export default function CheckInOutPage() {
         booking_id: booking.id,
         guest_id: booking.guest_id,
         txn_type: 'room',
-        description: 'Payment recorded at check-out',
+        description: `Payment at check-out — ${booking.booking_number}`,
         amount: checkoutAmount,
         payment_method: checkoutMethod,
       })
     }
 
-    const guestName = (booking.guests as any)?.full_name ?? 'Guest'
-    const roomLabel = booking.rooms ? `Room ${(booking.rooms as any).room_number}` : (booking.cottages as any)?.name ?? 'Accommodation'
+    try {
+      await createOrUpdateInvoice(supabase, {
+        booking_id: booking.id,
+        guest_id: booking.guest_id,
+        subtotal: Number(booking.subtotal),
+        total: Number(booking.total_amount),
+        amount_paid: newAmountPaid,
+        notes: remainingBalance > 0 ? `Partial payment at check-out. Balance: ₱${remainingBalance.toLocaleString()}` : 'Fully settled at check-out.',
+      })
+    } catch (_) {}
 
-    // booking.subtotal is the original room/cottage charge before any
-    // POS add-ons were charged to the room. Listing each addon separately
-    // (instead of just the final total_amount) is what makes POS charges
-    // actually visible on the check-out receipt.
-    const addonLineItems = (addons ?? []).map((a: any) => ({
-      label: a.name,
-      qty: a.quantity > 1 ? a.quantity : undefined,
+    const guestName  = (booking.guests as any)?.full_name ?? 'Guest'
+    const roomLabel  = booking.rooms ? `Room ${(booking.rooms as any).room_number}` : (booking.cottages as any)?.name ?? 'Accommodation'
+    const addonLines = (addons ?? []).map((a: any) => ({
+      label: a.name, qty: a.quantity > 1 ? a.quantity : undefined,
       amount: Number(a.total_price ?? a.unit_price * a.quantity),
     }))
 
@@ -209,315 +267,401 @@ export default function CheckInOutPage() {
       receiptType: 'Check-out Receipt',
       date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
       guestName,
-      lineItems: [
-        { label: roomLabel, amount: Number(booking.subtotal) },
-        ...addonLineItems,
-      ],
+      lineItems: [{ label: roomLabel, amount: Number(booking.subtotal) }, ...addonLines],
       total: booking.total_amount,
       amountPaid: newAmountPaid,
       balance: remainingBalance,
       paymentMethod: checkoutMethod,
-      footerNote: remainingBalance > 0
-        ? 'Balance remains on this guest\'s account.'
-        : 'Thank you for staying with us!',
+      footerNote: remainingBalance > 0 ? "Balance remains on this guest's account." : 'Thank you for staying with us!',
     })
 
-    const returnedEquipment = activeRentals && activeRentals.length > 0
-      ? ` ${activeRentals.length} equipment item(s) auto-returned.`
-      : ''
-
-    showToast(
-      remainingBalance > 0
-        ? `${guestName} checked out with ₱${remainingBalance.toLocaleString()} balance remaining.${returnedEquipment}`
-        : `${guestName} checked out! Room set to cleaning.${returnedEquipment}`
-    )
+    showToast(remainingBalance > 0
+      ? `${guestName} checked out with ₱${remainingBalance.toLocaleString()} balance remaining.`
+      : `${guestName} checked out! Room set to cleaning.`)
 
     setCheckoutModal(null)
     setProcessingCheckout(false)
     load()
   }
 
+  // ---- Day use direct checkout (no equipment) ----
+  async function checkOutDayUse(b: any) {
+    const pax = (b.num_adults ?? 0) + (b.num_children ?? 0) + (b.num_seniors ?? 0) + (b.num_pwd ?? 0)
+    await supabase.from('bookings').update({
+      status: 'checked_out',
+      actual_check_out: new Date().toISOString(),
+    }).eq('id', b.id)
+    showToast(`Day use guest checked out. ${pax} pax departed.`)
+    load()
+  }
+
+  // ---- Booking status color ----
+  const statusColor: Record<string, string> = {
+    pending: 'bg-yellow-100 text-yellow-700', confirmed: 'bg-blue-100 text-blue-700',
+    reserved: 'bg-purple-100 text-purple-700', checked_in: 'bg-green-100 text-green-700',
+    checked_out: 'bg-gray-100 text-gray-600', cancelled: 'bg-red-100 text-red-700',
+  }
+
+  // ---- Render ----
   return (
     <div>
       {toast && (
-        <div className="fixed bottom-6 right-6 bg-white border border-gray-200 rounded-lg px-4 py-3 shadow-lg text-sm z-50 max-w-xs">
-          ✅ {toast}
+        <div className="fixed bottom-6 right-6 bg-white border border-gray-200 rounded-lg px-4 py-3 shadow-lg text-sm z-50 max-w-sm">
+          {toast}
         </div>
       )}
 
-      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-4 w-fit">
-        <button
-          onClick={() => setTab('in')}
-          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-            tab === 'in' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'
-          }`}
-        >
-          Check-In ({pendingCheckins.length})
-        </button>
-        <button
-          onClick={() => setTab('active')}
-          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-            tab === 'active' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'
-          }`}
-        >
-          Active Stays ({activeStays.length})
-        </button>
-        <button
-          onClick={() => setTab('out')}
-          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-            tab === 'out' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'
-          }`}
-        >
-          Due for Check-Out ({pendingCheckouts.length})
-        </button>
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-4 w-fit flex-wrap">
+        {([
+          { id: 'in',      label: `Check-In (${pendingCheckins.length})` },
+          { id: 'active',  label: `Active Stays (${activeStays.length})` },
+          { id: 'out',     label: `Due for Check-Out (${pendingCheckouts.length})` },
+          { id: 'dayuse',  label: `Day Use (${activeDayUse.length})` },
+        ] as const).map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === t.id ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500'}`}>
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {loading ? (
         <div className="text-center py-12 text-gray-400 text-sm">Loading...</div>
-      ) : tab === 'in' ? (
-        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 text-sm font-medium text-gray-700">
-            Pending Check-ins
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
-                  <th className="text-left px-4 py-2.5">Booking #</th>
-                  <th className="text-left px-4 py-2.5">Guest</th>
-                  <th className="text-left px-4 py-2.5">Room/Cottage</th>
-                  <th className="text-left px-4 py-2.5">Pax</th>
-                  <th className="text-left px-4 py-2.5">Payment</th>
-                  <th className="text-left px-4 py-2.5">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pendingCheckins.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">No pending check-ins today.</td></tr>
-                ) : pendingCheckins.map(b => (
-                  <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
-                    <td className="px-4 py-2.5">{(b.guests as any)?.full_name}</td>
-                    <td className="px-4 py-2.5">
-                      {b.rooms ? `Room ${(b.rooms as any).room_number}` : (b.cottages as any)?.name}
-                    </td>
-                    <td className="px-4 py-2.5">{b.num_adults + b.num_children}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        b.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
-                        b.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {b.payment_status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <button
-                        onClick={() => handleCheckIn(b)}
-                        className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg"
-                      >
-                        Check In
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : tab === 'active' ? (
-        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 text-sm font-medium text-gray-700">
-            Currently Checked-In Guests
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
-                  <th className="text-left px-4 py-2.5">Booking #</th>
-                  <th className="text-left px-4 py-2.5">Guest</th>
-                  <th className="text-left px-4 py-2.5">Room/Cottage</th>
-                  <th className="text-left px-4 py-2.5">Check-in</th>
-                  <th className="text-left px-4 py-2.5">Check-out</th>
-                  <th className="text-left px-4 py-2.5">Wristband</th>
-                  <th className="text-left px-4 py-2.5">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeStays.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">No guests currently checked in.</td></tr>
-                ) : activeStays.map(b => (
-                  <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
-                    <td className="px-4 py-2.5">{(b.guests as any)?.full_name}</td>
-                    <td className="px-4 py-2.5">
-                      {b.rooms ? `Room ${(b.rooms as any).room_number}` : (b.cottages as any)?.name}
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-500">{b.check_in_date}</td>
-                    <td className="px-4 py-2.5 text-gray-500">{b.check_out_date}</td>
-                    <td className="px-4 py-2.5 text-gray-500">{b.wristband_number ?? '—'}</td>
-                    <td className="px-4 py-2.5">
-                      <button
-                        onClick={() => viewBill(b)}
-                        className="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg mr-1"
-                      >
-                        View Bill
-                      </button>
-                      <button
-                        onClick={() => openCheckoutModal(b)}
-                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg"
-                      >
-                        Check Out Now
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
       ) : (
-        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 text-sm font-medium text-gray-700">
-            Due for Check-Out
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
-                  <th className="text-left px-4 py-2.5">Booking #</th>
-                  <th className="text-left px-4 py-2.5">Guest</th>
-                  <th className="text-left px-4 py-2.5">Room</th>
-                  <th className="text-left px-4 py-2.5">Total</th>
-                  <th className="text-left px-4 py-2.5">Balance</th>
-                  <th className="text-left px-4 py-2.5">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pendingCheckouts.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">No pending check-outs today.</td></tr>
-                ) : pendingCheckouts.map(b => {
-                  const balance = Math.max(0, b.total_amount - b.amount_paid)
-                  return (
+        <>
+          {/* ===== CHECK-IN TAB ===== */}
+          {tab === 'in' && (
+            <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="text-left px-4 py-2.5">Booking #</th>
+                    <th className="text-left px-4 py-2.5">Guest</th>
+                    <th className="text-left px-4 py-2.5">Room/Cottage</th>
+                    <th className="text-left px-4 py-2.5">Check-in</th>
+                    <th className="text-left px-4 py-2.5">Check-out</th>
+                    <th className="text-left px-4 py-2.5">Status</th>
+                    <th className="text-left px-4 py-2.5">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingCheckins.length === 0 ? (
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">No pending check-ins.</td></tr>
+                  ) : pendingCheckins.map(b => (
                     <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
                       <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
                       <td className="px-4 py-2.5">{(b.guests as any)?.full_name}</td>
-                      <td className="px-4 py-2.5">
-                        {b.rooms ? `Room ${(b.rooms as any).room_number}` : (b.cottages as any)?.name}
+                      <td className="px-4 py-2.5 text-gray-500">
+                        {b.rooms ? `Room ${(b.rooms as any).room_number}` : (b.cottages as any)?.name ?? '—'}
                       </td>
-                      <td className="px-4 py-2.5">₱{Number(b.total_amount).toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-gray-500">{b.check_in_date}</td>
+                      <td className="px-4 py-2.5 text-gray-500">{b.check_out_date}</td>
                       <td className="px-4 py-2.5">
-                        <span className={balance > 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
-                          ₱{balance.toLocaleString()}
-                        </span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[b.status] ?? ''}`}>{b.status}</span>
                       </td>
                       <td className="px-4 py-2.5">
-                        <button
-                          onClick={() => viewBill(b)}
-                          className="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg mr-1"
-                        >
-                          View Bill
-                        </button>
-                        <button
-                          onClick={() => openCheckoutModal(b)}
-                          className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg"
-                        >
-                          Check Out
+                        <button onClick={() => handleCheckIn(b)}
+                          className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
+                          Check In
                         </button>
                       </td>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ===== ACTIVE STAYS TAB ===== */}
+          {tab === 'active' && (
+            <div className="space-y-3">
+              {activeStays.length > 0 && (() => {
+                const totalAdults   = activeStays.reduce((s, b) => s + (b.num_adults ?? 0), 0)
+                const totalChildren = activeStays.reduce((s, b) => s + (b.num_children ?? 0), 0)
+                return (
+                  <div className="bg-green-50 border border-green-100 rounded-xl p-4 flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-green-700">Overnight Guests In Resort</div>
+                      <div className="text-xs text-green-500 mt-0.5">
+                        {totalAdults > 0 && `${totalAdults} adult${totalAdults > 1 ? 's' : ''}`}
+                        {totalChildren > 0 && ` · ${totalChildren} child${totalChildren > 1 ? 'ren' : ''}`}
+                        {' · '}{activeStays.length} booking{activeStays.length > 1 ? 's' : ''}
+                      </div>
+                    </div>
+                    <div className="text-3xl font-bold text-green-700">{totalAdults + totalChildren} pax</div>
+                  </div>
+                )
+              })()}
+              <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+                      <th className="text-left px-4 py-2.5">Booking #</th>
+                      <th className="text-left px-4 py-2.5">Guest</th>
+                      <th className="text-left px-4 py-2.5">Pax</th>
+                      <th className="text-left px-4 py-2.5">Room/Cottage</th>
+                      <th className="text-left px-4 py-2.5">Check-in</th>
+                      <th className="text-left px-4 py-2.5">Check-out</th>
+                      <th className="text-left px-4 py-2.5">Wristband</th>
+                      <th className="text-left px-4 py-2.5">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeStays.length === 0 ? (
+                      <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-xs">No guests currently checked in.</td></tr>
+                    ) : activeStays.map(b => (
+                      <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
+                        <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
+                        <td className="px-4 py-2.5">{(b.guests as any)?.full_name}</td>
+                        <td className="px-4 py-2.5">
+                          <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                            {(b.num_adults ?? 0) + (b.num_children ?? 0)} pax
+                          </span>
+                          <div className="text-xs text-gray-400 mt-0.5">
+                            {b.num_adults > 0 && `${b.num_adults}A`}{b.num_children > 0 && ` ${b.num_children}C`}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-500">
+                          {b.rooms ? `Room ${(b.rooms as any).room_number}` : (b.cottages as any)?.name}
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-500">{b.check_in_date}</td>
+                        <td className="px-4 py-2.5 text-gray-500">{b.check_out_date}</td>
+                        <td className="px-4 py-2.5 text-gray-500">{b.wristband_number ?? '—'}</td>
+                        <td className="px-4 py-2.5">
+                          <button onClick={() => viewBill(b)}
+                            className="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg mr-1">
+                            View Bill
+                          </button>
+                          <button onClick={() => openCheckoutModal(b)}
+                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg">
+                            Check Out
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ===== DUE FOR CHECK-OUT TAB ===== */}
+          {tab === 'out' && (
+            <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="text-left px-4 py-2.5">Booking #</th>
+                    <th className="text-left px-4 py-2.5">Guest</th>
+                    <th className="text-left px-4 py-2.5">Room/Cottage</th>
+                    <th className="text-left px-4 py-2.5">Check-out</th>
+                    <th className="text-right px-4 py-2.5">Balance</th>
+                    <th className="text-left px-4 py-2.5">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingCheckouts.length === 0 ? (
+                    <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">No guests due for check-out today.</td></tr>
+                  ) : pendingCheckouts.map(b => {
+                    const balance = Math.max(0, b.total_amount - b.amount_paid)
+                    return (
+                      <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
+                        <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
+                        <td className="px-4 py-2.5">{(b.guests as any)?.full_name}</td>
+                        <td className="px-4 py-2.5 text-gray-500">
+                          {b.rooms ? `Room ${(b.rooms as any).room_number}` : (b.cottages as any)?.name}
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-500">{b.check_out_date}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          <span className={balance > 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
+                            ₱{balance.toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <button onClick={() => viewBill(b)}
+                            className="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg mr-1">
+                            View Bill
+                          </button>
+                          <button onClick={() => openCheckoutModal(b)}
+                            className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
+                            Check Out
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ===== DAY USE TAB ===== */}
+          {tab === 'dayuse' && (
+            <div>
+              {/* Headcount banner */}
+              {activeDayUse.length > 0 && (() => {
+                const tA = activeDayUse.reduce((s, b) => s + (b.num_adults   ?? 0), 0)
+                const tC = activeDayUse.reduce((s, b) => s + (b.num_children ?? 0), 0)
+                const tS = activeDayUse.reduce((s, b) => s + (b.num_seniors  ?? 0), 0)
+                const tP = activeDayUse.reduce((s, b) => s + (b.num_pwd      ?? 0), 0)
+                const total = tA + tC + tS + tP
+                return (
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-4 flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-blue-700">Day Use Guests Currently In Resort</div>
+                      <div className="text-xs text-blue-500 mt-0.5">
+                        {tA > 0 && `${tA} adult${tA > 1 ? 's' : ''}`}
+                        {tC > 0 && ` · ${tC} child${tC > 1 ? 'ren' : ''}`}
+                        {tS > 0 && ` · ${tS} senior${tS > 1 ? 's' : ''}`}
+                        {tP > 0 && ` · ${tP} PWD`}
+                        {' · '}{activeDayUse.length} group{activeDayUse.length > 1 ? 's' : ''}
+                      </div>
+                    </div>
+                    <div className="text-3xl font-bold text-blue-700">{total} pax</div>
+                  </div>
+                )
+              })()}
+
+              {activeDayUse.length === 0 ? (
+                <div className="text-center py-12 bg-white border border-gray-100 rounded-xl text-gray-400 text-sm">
+                  No active day use guests right now.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {activeDayUse.map(b => {
+                    const pax       = (b.num_adults ?? 0) + (b.num_children ?? 0) + (b.num_seniors ?? 0) + (b.num_pwd ?? 0)
+                    const guestName = b.special_requests?.replace('Day Use Guest: ', '').split('\n')[0] || b.booking_number
+                    const hasUnreturnedEquipment = b.rentals.length > 0
+
+                    return (
+                      <div key={b.id} className="bg-white border border-gray-100 rounded-xl p-4">
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <div className="text-sm font-medium text-gray-700">{guestName}</div>
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              {b.booking_number} · Entered {new Date(b.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-semibold text-blue-700">{pax} pax</div>
+                            <div className="text-xs text-gray-400">
+                              {b.num_adults > 0 && `${b.num_adults}A`}
+                              {b.num_children > 0 && ` ${b.num_children}C`}
+                              {b.num_seniors > 0 && ` ${b.num_seniors}Sr`}
+                              {b.num_pwd > 0 && ` ${b.num_pwd}P`}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Unreturned equipment */}
+                        {hasUnreturnedEquipment && (
+                          <div className="space-y-1.5 mb-3">
+                            {b.rentals.map((r: any) => (
+                              <div key={r.id} className="flex items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-xs">
+                                <span className="text-amber-700">⚠ {(r.equipment as any)?.name} × {r.quantity} — not yet returned</span>
+                                <span className="text-amber-500">
+                                  Since {new Date(r.rental_start).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => {
+                                setEquipmentCheckModal(b.rentals)
+                                setEquipmentConditions(Object.fromEntries(
+                                  b.rentals.map((r: any) => [r.id, { condition: 'good', notes: '', charge: 0 }])
+                                ))
+                                setPendingCheckoutBooking({ booking: b, addons: [], balance: 0 })
+                              }}
+                              className="w-full py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg font-medium">
+                              Return Equipment First ({b.rentals.length} item{b.rentals.length > 1 ? 's' : ''})
+                            </button>
+                          </div>
+                        )}
+
+                        {!hasUnreturnedEquipment && (
+                          <div className="text-xs text-green-600 mb-3">✓ No unreturned equipment</div>
+                        )}
+
+                        <button
+                          disabled={hasUnreturnedEquipment}
+                          onClick={() => checkOutDayUse(b)}
+                          className="w-full py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm rounded-lg font-medium">
+                          {hasUnreturnedEquipment ? 'Return equipment before check-out' : `Check Out (${pax} pax)`}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
 
+      {/* ===== BILL DETAIL MODAL ===== */}
       {billDetail && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setBillDetail(null)}>
-          <div className="bg-white rounded-xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <div className="text-sm font-medium text-gray-700 mb-1">
-              Bill — {billDetail.booking.booking_number}
-            </div>
-            <div className="text-xs text-gray-400 mb-3">
-              {(billDetail.booking.guests as any)?.full_name}
-            </div>
-
-            <div className="text-sm space-y-1.5 mb-3">
+          <div className="bg-white rounded-xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="text-sm font-medium text-gray-700 mb-0.5">{billDetail.booking.booking_number}</div>
+            <div className="text-xs text-gray-400 mb-3">{(billDetail.booking.guests as any)?.full_name}</div>
+            <div className="text-sm space-y-1.5 bg-gray-50 rounded-lg p-3 mb-4">
               <div className="flex justify-between text-gray-600">
-                <span>
-                  {billDetail.booking.rooms ? `Room ${(billDetail.booking.rooms as any).room_number}` : (billDetail.booking.cottages as any)?.name}
-                </span>
+                <span>{billDetail.booking.rooms ? `Room ${(billDetail.booking.rooms as any).room_number}` : (billDetail.booking.cottages as any)?.name}</span>
                 <span>₱{Number(billDetail.booking.subtotal).toLocaleString()}</span>
               </div>
-
-              {billDetail.addons.length === 0 ? (
-                <div className="text-xs text-gray-400 italic">No additional charges (POS, etc.)</div>
-              ) : billDetail.addons.map((a: any) => (
+              {billDetail.addons.map((a: any) => (
                 <div key={a.id} className="flex justify-between text-gray-600">
                   <span>{a.name}{a.quantity > 1 ? ` × ${a.quantity}` : ''}</span>
                   <span>₱{Number(a.total_price ?? a.unit_price * a.quantity).toLocaleString()}</span>
                 </div>
               ))}
-
-              <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-1.5 mt-1.5">
-                <span>Total</span>
-                <span>₱{Number(billDetail.booking.total_amount).toLocaleString()}</span>
+              <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-200 pt-1.5">
+                <span>Total</span><span>₱{Number(billDetail.booking.total_amount).toLocaleString()}</span>
               </div>
-              <div className="flex justify-between text-gray-500">
-                <span>Amount Paid</span>
-                <span>₱{Number(billDetail.booking.amount_paid).toLocaleString()}</span>
+              <div className="flex justify-between text-green-600">
+                <span>Paid</span><span>₱{Number(billDetail.booking.amount_paid).toLocaleString()}</span>
               </div>
-              <div className="flex justify-between font-medium">
-                <span className={billDetail.booking.total_amount - billDetail.booking.amount_paid > 0 ? 'text-red-600' : 'text-green-600'}>
-                  Balance
-                </span>
-                <span className={billDetail.booking.total_amount - billDetail.booking.amount_paid > 0 ? 'text-red-600' : 'text-green-600'}>
-                  ₱{Math.max(0, billDetail.booking.total_amount - billDetail.booking.amount_paid).toLocaleString()}
-                </span>
+              <div className={`flex justify-between font-medium ${Math.max(0, billDetail.booking.total_amount - billDetail.booking.amount_paid) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                <span>Balance</span>
+                <span>₱{Math.max(0, billDetail.booking.total_amount - billDetail.booking.amount_paid).toLocaleString()}</span>
               </div>
             </div>
-
-            <button onClick={() => setBillDetail(null)} className="w-full py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">
-              Close
-            </button>
+            <div className="flex gap-2">
+              {Math.max(0, billDetail.booking.total_amount - billDetail.booking.amount_paid) > 0 && (
+                <button onClick={() => { setBillDetail(null); openCheckoutModal(billDetail.booking) }}
+                  className="flex-1 py-2 bg-blue-700 text-white text-sm rounded-lg">Record Payment</button>
+              )}
+              <button onClick={() => setBillDetail(null)}
+                className="flex-1 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">Close</button>
+            </div>
           </div>
         </div>
       )}
 
+      {/* ===== CHECKOUT PAYMENT MODAL ===== */}
       {checkoutModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !processingCheckout && setCheckoutModal(null)}>
           <div className="bg-white rounded-xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="text-sm font-medium text-gray-700 mb-1">
-              Check Out — {checkoutModal.booking.booking_number}
-            </div>
-            <div className="text-xs text-gray-400 mb-3">
-              {(checkoutModal.booking.guests as any)?.full_name}
-            </div>
+            <div className="text-sm font-medium text-gray-700 mb-0.5">Check Out — {checkoutModal.booking.booking_number}</div>
+            <div className="text-xs text-gray-400 mb-3">{(checkoutModal.booking.guests as any)?.full_name}</div>
 
-            <div className="text-sm space-y-1.5 mb-3 bg-gray-50 rounded-lg p-3">
+            <div className="text-sm space-y-1.5 bg-gray-50 rounded-lg p-3 mb-3">
               <div className="flex justify-between text-gray-600">
-                <span>
-                  {checkoutModal.booking.rooms ? `Room ${(checkoutModal.booking.rooms as any).room_number}` : (checkoutModal.booking.cottages as any)?.name}
-                </span>
+                <span>{checkoutModal.booking.rooms ? `Room ${(checkoutModal.booking.rooms as any).room_number}` : (checkoutModal.booking.cottages as any)?.name}</span>
                 <span>₱{Number(checkoutModal.booking.subtotal).toLocaleString()}</span>
               </div>
-
               {checkoutModal.addons.map((a: any) => (
                 <div key={a.id} className="flex justify-between text-gray-600">
                   <span>{a.name}{a.quantity > 1 ? ` × ${a.quantity}` : ''}</span>
                   <span>₱{Number(a.total_price ?? a.unit_price * a.quantity).toLocaleString()}</span>
                 </div>
               ))}
-
-              <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-200 pt-1.5 mt-1.5">
-                <span>Total Bill</span>
-                <span>₱{Number(checkoutModal.booking.total_amount).toLocaleString()}</span>
+              <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-200 pt-1.5">
+                <span>Total Bill</span><span>₱{Number(checkoutModal.booking.total_amount).toLocaleString()}</span>
               </div>
-              <div className="flex justify-between text-gray-500">
-                <span>Already Paid</span>
-                <span>₱{Number(checkoutModal.booking.amount_paid).toLocaleString()}</span>
+              <div className="flex justify-between text-green-600">
+                <span>Already Paid</span><span>₱{Number(checkoutModal.booking.amount_paid).toLocaleString()}</span>
               </div>
               <div className="flex justify-between font-medium text-red-600">
                 <span>Balance Due</span>
@@ -527,54 +671,88 @@ export default function CheckInOutPage() {
 
             <div className="mb-3">
               <label className="block text-xs text-gray-500 mb-1">Amount Being Paid Now</label>
-              <input
-                type="number"
-                value={checkoutAmount}
+              <input type="number" value={checkoutAmount}
                 onChange={e => setCheckoutAmount(parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
-              />
-              <div className="text-xs text-gray-400 mt-1">
-                Defaults to the full balance. Lower it if the guest is only paying part now.
-              </div>
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
             </div>
 
-            <div className="mb-4">
-              <label className="block text-xs text-gray-500 mb-1">Payment Method</label>
-              <select
-                value={checkoutMethod}
-                onChange={e => setCheckoutMethod(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
-              >
-                <option value="cash">Cash</option>
-                <option value="gcash">GCash</option>
-                <option value="maya">Maya</option>
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="credit_card">Credit Card</option>
-              </select>
+            <PaymentCalculator
+              totalDue={checkoutAmount}
+              method={checkoutMethod}
+              onMethodChange={setCheckoutMethod}
+              amountTendered={checkoutAmount}
+              onAmountTenderedChange={setCheckoutAmount}
+            />
+
+            <div className="flex gap-2 mt-3">
+              <button onClick={confirmCheckout} disabled={processingCheckout}
+                className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg">
+                {processingCheckout ? 'Processing...' : 'Confirm Check-Out'}
+              </button>
+              <button onClick={() => setCheckoutModal(null)} disabled={processingCheckout}
+                className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== EQUIPMENT DAMAGE CHECK MODAL ===== */}
+      {equipmentCheckModal.length > 0 && pendingCheckoutBooking && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-5 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="text-sm font-semibold text-gray-800 mb-1">Equipment Return Check</div>
+            <div className="text-xs text-gray-400 mb-4">Inspect each item before finalizing.</div>
+
+            <div className="space-y-4">
+              {equipmentCheckModal.map((rental: any) => {
+                const cond = equipmentConditions[rental.id] ?? { condition: 'good', notes: '', charge: 0 }
+                return (
+                  <div key={rental.id} className="border border-gray-100 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <div className="text-sm font-medium text-gray-700">{(rental.equipment as any)?.name}</div>
+                        <div className="text-xs text-gray-400">Qty: {rental.quantity}</div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setEquipmentConditions(p => ({ ...p, [rental.id]: { ...p[rental.id], condition: 'good' } }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium ${cond.condition === 'good' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          ✓ Good
+                        </button>
+                        <button onClick={() => setEquipmentConditions(p => ({ ...p, [rental.id]: { ...p[rental.id], condition: 'damaged' } }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium ${cond.condition === 'damaged' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          ⚠ Damaged
+                        </button>
+                      </div>
+                    </div>
+                    {cond.condition === 'damaged' && (
+                      <div className="space-y-2 pt-3 border-t border-gray-100">
+                        <input value={cond.notes} onChange={e => setEquipmentConditions(p => ({ ...p, [rental.id]: { ...p[rental.id], notes: e.target.value } }))}
+                          placeholder="Damage description..."
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white" />
+                        <input type="number" value={cond.charge || ''} onChange={e => setEquipmentConditions(p => ({ ...p, [rental.id]: { ...p[rental.id], charge: parseFloat(e.target.value) || 0 } }))}
+                          placeholder="Damage charge (₱)"
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white" />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
-            {checkoutAmount < Math.max(0, checkoutModal.booking.total_amount - checkoutModal.booking.amount_paid) && (
-              <div className="bg-amber-50 border border-amber-100 rounded-lg p-2.5 text-xs text-amber-700 mb-3">
-                This is less than the full balance. The guest will check out with a remaining balance of{' '}
-                ₱{Math.max(0, checkoutModal.booking.total_amount - checkoutModal.booking.amount_paid - checkoutAmount).toLocaleString()}.
+            {Object.values(equipmentConditions).some(c => c.condition === 'damaged' && c.charge > 0) && (
+              <div className="mt-3 bg-red-50 rounded-lg p-3 text-sm flex justify-between font-medium text-red-700">
+                <span>Total Damage Charges</span>
+                <span>₱{Object.values(equipmentConditions).reduce((s, c) => s + (c.charge ?? 0), 0).toLocaleString()}</span>
               </div>
             )}
 
-            <div className="flex gap-2">
-              <button
-                onClick={confirmCheckout}
-                disabled={processingCheckout}
-                className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg"
-              >
-                {processingCheckout ? 'Processing...' : 'Confirm Check-Out'}
+            <div className="flex gap-2 mt-4">
+              <button onClick={confirmEquipmentCheck}
+                className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg">
+                Confirm & Proceed
               </button>
-              <button
-                onClick={() => setCheckoutModal(null)}
-                disabled={processingCheckout}
-                className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm"
-              >
-                Cancel
-              </button>
+              <button onClick={() => { setEquipmentCheckModal([]); setPendingCheckoutBooking(null) }}
+                className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">Cancel</button>
             </div>
           </div>
         </div>
