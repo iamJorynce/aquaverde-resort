@@ -94,7 +94,10 @@ export default function HousekeepingPage() {
     if (error) { showToast('Error: ' + error.message); return }
 
     if (status === 'completed' && task.room_id) {
-      await supabase.from('rooms').update({ status: 'available', last_cleaned_at: new Date().toISOString() }).eq('id', task.room_id)
+    await supabase.from('rooms').update({ status: 'available', last_cleaned_at: new Date().toISOString() }).eq('id', task.room_id)
+    }
+    if (status === 'completed' && task.cottage_id) {
+    await supabase.from('cottages').update({ status: 'available' }).eq('id', task.cottage_id)
     }
 
     await logActivity(supabase, {
@@ -106,6 +109,11 @@ export default function HousekeepingPage() {
 
     showToast(`Task ${task.task_number} → ${status.replace('_', ' ')}`)
     load()
+
+// ADD THIS:
+if (status === 'completed' && task.cottage_id) {
+  await supabase.from('cottages').update({ status: 'available' }).eq('id', task.cottage_id)
+}
   }
 
   return (

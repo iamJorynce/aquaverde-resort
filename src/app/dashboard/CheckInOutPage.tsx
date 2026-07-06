@@ -228,8 +228,28 @@ export default function CheckInOutPage() {
 
     if (error) { showToast('Error: ' + error.message); setProcessingCheckout(false); return }
 
-    if (booking.room_id)    await supabase.from('rooms').update({ status: 'cleaning' }).eq('id', booking.room_id)
-    if (booking.cottage_id) await supabase.from('cottages').update({ status: 'cleaning' }).eq('id', booking.cottage_id)
+    if (booking.room_id) {
+  await supabase.from('rooms').update({ status: 'cleaning' }).eq('id', booking.room_id)
+  await supabase.from('housekeeping_tasks').insert({
+    task_number: `HK-${Date.now()}`,
+    room_id: booking.room_id,
+    task_type: 'checkout_cleaning',
+    priority: 'high',
+    status: 'pending',
+    notes: `Checkout cleaning — ${booking.booking_number}`,
+  })
+}
+if (booking.cottage_id) {
+  await supabase.from('cottages').update({ status: 'cleaning' }).eq('id', booking.cottage_id)
+  await supabase.from('housekeeping_tasks').insert({
+    task_number: `HK-${Date.now()}`,
+    cottage_id: booking.cottage_id,
+    task_type: 'checkout_cleaning',
+    priority: 'high',
+    status: 'pending',
+    notes: `Checkout cleaning — ${booking.booking_number}`,
+  })
+}
 
     if (checkoutAmount > 0) {
       await supabase.from('transactions').insert({
@@ -286,14 +306,29 @@ export default function CheckInOutPage() {
 
   // ---- Day use direct checkout (no equipment) ----
   async function checkOutDayUse(b: any) {
-    const pax = (b.num_adults ?? 0) + (b.num_children ?? 0) + (b.num_seniors ?? 0) + (b.num_pwd ?? 0)
-    await supabase.from('bookings').update({
-      status: 'checked_out',
-      actual_check_out: new Date().toISOString(),
-    }).eq('id', b.id)
-    showToast(`Day use guest checked out. ${pax} pax departed.`)
-    load()
+  const pax = (b.num_adults ?? 0) + (b.num_children ?? 0) + (b.num_seniors ?? 0) + (b.num_pwd ?? 0)
+
+  await supabase.from('bookings').update({
+    status: 'checked_out',
+    actual_check_out: new Date().toISOString(),
+  }).eq('id', b.id)
+
+  // Set cottage to cleaning + create housekeeping task
+  if (b.cottage_id) {
+    await supabase.from('cottages').update({ status: 'cleaning' }).eq('id', b.cottage_id)
+    await supabase.from('housekeeping_tasks').insert({
+      task_number: `HK-${Date.now()}`,
+      cottage_id: b.cottage_id,
+      task_type: 'checkout_cleaning',
+      priority: 'high',
+      status: 'pending',
+      notes: `Day use checkout — ${b.booking_number}`,
+    })
   }
+
+  showToast(`Day use guest checked out. ${pax} pax departed.`)
+  load()
+}
 
   // ---- Booking status color ----
   const statusColor: Record<string, string> = {

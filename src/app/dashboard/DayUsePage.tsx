@@ -215,14 +215,29 @@ const totalChildren = areas.reduce((s, a) => s + (areaCounts[a]?.child  ?? 0), 0
 const totalSeniors  = areas.reduce((s, a) => s + (areaCounts[a]?.senior ?? 0), 0)
 const totalPwd      = areas.reduce((s, a) => s + (areaCounts[a]?.pwd    ?? 0), 0)
 
+// Day use needs a guest record — create/upsert a walk-in guest
+const guestCode = `DU-${Date.now().toString().slice(-6)}`
+const { data: duGuest, error: duGuestError } = await supabase
+  .from('guests')
+  .insert({
+    full_name: form.guest_name || 'Day Use Guest',
+    phone: form.guest_phone || null,
+    guest_code: guestCode,
+  })
+  .select('id')
+  .single()
+
+if (duGuestError) throw new Error('Guest insert failed: ' + duGuestError.message)
+
 const { data: dayUseBooking, error: bookingError } = await supabase.from('bookings').insert({
-  guest_id: null,
+  guest_id: duGuest.id,  // ← TAMA na
   booking_type: 'walk_in',
   accommodation_type: 'day_use',
-  num_adults:   totalAdults,    // ← TAMA — gikan sa areaCounts
-  num_children: totalChildren,  // ← TAMA
-  num_seniors:  totalSeniors,   // ← TAMA
-  num_pwd:      totalPwd,       // ← TAMA
+  cottage_id: selectedCottages[0]?.id ?? null,
+  num_adults:   totalAdults,
+  num_children: totalChildren,
+  num_seniors:  totalSeniors,
+  num_pwd:      totalPwd,
   check_in_date: new Date().toISOString().slice(0, 10),
   check_out_date: new Date().toISOString().slice(0, 10),
   total_amount: total,
@@ -231,6 +246,7 @@ const { data: dayUseBooking, error: bookingError } = await supabase.from('bookin
   status: 'checked_in',
   special_requests: form.guest_name ? `Day Use Guest: ${form.guest_name}${form.guest_phone ? ` (${form.guest_phone})` : ''}` : null,
 }).select().single()
+
 if (bookingError) throw new Error('Booking insert failed: ' + bookingError.message)
 
       await supabase.from('transactions').insert({
