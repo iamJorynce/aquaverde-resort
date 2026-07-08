@@ -149,6 +149,8 @@ export default function WalkInPage() {
       const { data: booking, error: bookingError } = await supabase.from('bookings').insert({
         guest_id: guestId,
         room_id: form.room_id,
+        cottage_id: selectedCottages[0]?.id ?? null,  
+        cottage_ids: selectedCottages.map(c => c.id),  //
         booking_type: bookingType === 'advance' ? 'online' : 'walk_in',
         accommodation_type: 'room',
         num_adults: form.num_adults,

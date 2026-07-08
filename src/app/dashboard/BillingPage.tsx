@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import PaymentCalculator from './PaymentCalculator'
 import { logActivity } from './activityLog'
 import { createOrUpdateInvoice } from './invoiceUtils'
+import { printReceipt } from './receipt'
 
 const statusColor: Record<string, string> = {
   unpaid:   'bg-red-100 text-red-700',
@@ -31,13 +32,14 @@ export default function BillingPage() {
   const [detailModal, setDetailModal] = useState<any>(null)
   const [detailAddons, setDetailAddons] = useState<any[]>([])
 
+
   async function load() {
     setLoading(true)
     const { data } = await supabase
-      .from('invoices')
-      .select('*, guests(full_name, phone), bookings(booking_number, subtotal, check_in_date, check_out_date, rooms(room_number), cottages(name))')
-      .order('created_at', { ascending: false })
-    setInvoices(data ?? [])
+  .from('invoices')
+  .select('*, guests(full_name, phone), bookings(booking_number, subtotal, check_in_date, check_out_date, accommodation_type, rooms(room_number), cottages(name))')
+  .order('created_at', { ascending: false })
+setInvoices(data ?? [])
     setLoading(false)
   }
 
@@ -127,6 +129,44 @@ export default function BillingPage() {
       setSubmitting(false)
     }
   }
+  async function reprintReceipt(inv: any) {
+  // Fetch addons for itemized breakdown
+  const { data: addons } = inv.booking_id
+    ? await supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).order('created_at')
+    : { data: [] }
+
+  const isAccommodation = inv.bookings?.accommodation_type !== 'day_use'
+  const roomLabel = inv.bookings?.rooms?.room_number
+    ? `Room ${inv.bookings.rooms.room_number}`
+    : inv.bookings?.cottages?.name ?? 'Accommodation'
+
+  const lineItems = isAccommodation
+    ? [
+        { label: roomLabel, amount: Number(inv.subtotal) },
+        ...(addons ?? []).map((a: any) => ({
+          label: a.name,
+          qty: a.quantity > 1 ? a.quantity : undefined,
+          amount: Number(a.total_price ?? a.unit_price * a.quantity),
+        }))
+      ]
+    : [{ label: 'Day Use Entry', amount: Number(inv.total) }]
+
+  printReceipt({
+    title: 'AquaVerde Beach Resort',
+    receiptNumber: inv.invoice_number,
+    receiptType: isAccommodation ? 'Official Receipt' : 'Day Use Receipt',
+    date: new Date(inv.created_at).toLocaleDateString('en-PH', { dateStyle: 'medium' }),
+    guestName: inv.guests?.full_name ?? 'Guest',
+    guestContact: inv.guests?.phone ?? undefined,
+    lineItems,
+    total: Number(inv.total),
+    amountPaid: Number(inv.paid),
+    balance: Number(inv.balance),
+    paymentMethod: 'cash',
+    footerNote: `Invoice: ${inv.invoice_number} · Reprinted: ${new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' })}`,
+  })
+}
+
 
   const filtered = filter === 'all' ? invoices : invoices.filter(i => i.status === filter)
 
@@ -214,6 +254,10 @@ export default function BillingPage() {
                     <button onClick={() => openDetail(inv)}
                       className="px-2.5 py-1 border border-gray-200 hover:bg-gray-50 text-xs rounded-lg text-gray-600">
                       Details
+                    </button>
+                    <button onClick={() => reprintReceipt(inv)}
+                      className="px-2.5 py-1 border border-gray-200 hover:bg-gray-50 text-xs rounded-lg text-gray-600">
+                      🖨 Reprint
                     </button>
                     {Number(inv.balance) > 0 && (
                       <button onClick={() => openPay(inv)}

@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import { logActivity } from './activityLog'
 import { usePermissions } from './permissions'
+import { printReceipt } from './receipt'
+import { createOrUpdateInvoice } from './invoiceUtils'
 
 interface RateRow { id: string; name: string; guest_type: string; area: string; rate: number }
 interface CottageOption { id: string; name: string; cottage_code: string; day_rate: number; status: string }
@@ -234,6 +236,7 @@ const { data: dayUseBooking, error: bookingError } = await supabase.from('bookin
   booking_type: 'walk_in',
   accommodation_type: 'day_use',
   cottage_id: selectedCottages[0]?.id ?? null,
+  cottage_ids: selectedCottages.map(c => c.id),
   num_adults:   totalAdults,
   num_children: totalChildren,
   num_seniors:  totalSeniors,
@@ -284,6 +287,83 @@ if (bookingError) throw new Error('Booking insert failed: ' + bookingError.messa
         table_name: 'day_use_entries',
         record_id: entry.id,
       })
+      // Generate receipt
+const areaBreakdown = areas
+  .filter(a => areaFee(a) > 0)
+  .map(a => {
+    const c = areaCounts[a] ?? { adult: 0, child: 0, senior: 0, pwd: 0 }
+    const lines = []
+    if (c.adult  > 0) lines.push({ label: `${a} — Adult × ${c.adult}`,   amount: c.adult   * getRate(a, 'adult') })
+    if (c.child  > 0) lines.push({ label: `${a} — Child × ${c.child}`,   amount: c.child   * getRate(a, 'child') })
+    if (c.senior > 0) lines.push({ label: `${a} — Senior × ${c.senior}`, amount: c.senior  * getRate(a, 'senior') })
+    if (c.pwd    > 0) lines.push({ label: `${a} — PWD × ${c.pwd}`,       amount: c.pwd     * getRate(a, 'pwd') })
+    return lines
+  }).flat()
+
+const cottageLines = selectedCottages.map(c => ({ label: `Cottage — ${c.name}`, amount: Number(c.day_rate) }))
+const equipLines   = equipmentLines.map(l => ({ label: `${l.name} × ${l.quantity}`, amount: l.amount }))
+const parkingLine  = form.with_parking ? [{ label: 'Parking', amount: 100 }] : []
+
+printReceipt({
+  title: 'AquaVerde Beach Resort',
+  receiptNumber: entryNumber,
+  receiptType: 'Day Use Receipt',
+  date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
+  guestName: form.guest_name || 'Walk-in Guest',
+  guestContact: form.guest_phone || undefined,
+  lineItems: [...areaBreakdown, ...cottageLines, ...equipLines, ...parkingLine],
+  total,
+  amountPaid: total,
+  paymentMethod: payment.method,
+  footerNote: `Wristbands: ${wristbands.join(', ')}`,
+})
+
+// Create invoice for billing module
+if (dayUseBooking) {
+  await createOrUpdateInvoice(supabase, {
+    booking_id: dayUseBooking.id,
+    guest_id: duGuest.id,
+    subtotal: total,
+    total,
+    amount_paid: total,
+    notes: `Day Use Entry — ${entryNumber}`,
+  })
+  // Store day use line items as booking_addons for itemized receipt
+if (dayUseBooking) {
+  const dayUseLineItems = [
+    ...areaBreakdown.map(l => ({ 
+      booking_id: dayUseBooking.id, 
+      name: l.label, 
+      quantity: 1, 
+      unit_price: l.amount 
+    })),
+    ...selectedCottages.map(c => ({ 
+      booking_id: dayUseBooking.id, 
+      name: `Cottage — ${c.name}`, 
+      quantity: 1, 
+      unit_price: Number(c.day_rate) 
+    })),
+    ...equipmentLines.map(l => ({ 
+      booking_id: dayUseBooking.id, 
+      name: `${l.name} × ${l.quantity}`, 
+      quantity: 1, 
+      unit_price: l.amount 
+    })),
+    ...(form.with_parking ? [{ 
+      booking_id: dayUseBooking.id, 
+      name: 'Parking', 
+      quantity: 1, 
+      unit_price: 100 
+    }] : []),
+  ]
+  
+  if (dayUseLineItems.length > 0) {
+    await supabase.from('booking_addons').insert(dayUseLineItems)
+  }
+}
+}
+
+
 
       setSuccess({ entryNumber, wristbands })
       setAreaCounts({})
