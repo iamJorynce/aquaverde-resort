@@ -17,10 +17,10 @@ export default function ContactPage() {
             <h2 className="text-2xl font-bold text-gray-800 mb-8">Get in Touch</h2>
             <div className="space-y-6">
               {[
-                { icon: '📍', label: 'Address', value: 'AquaVerde Beach Resort\nSarangani, South Cotabato\nPhilippines' },
+                { icon: '📍', label: 'Address', value: 'Sea Eagle Beach Resort\nPindasan, Mabini, Davao de Oro\nPhilippines' },
                 { icon: '📞', label: 'Phone', value: '+63 912 345 6789' },
-                { icon: '✉️', label: 'Email', value: 'info@aquaverde.ph' },
-                { icon: '💬', label: 'Facebook', value: 'facebook.com/aquaverderesort' },
+                { icon: '✉️', label: 'Email', value: 'info@seaeaglebeachresort.ph' },
+                { icon: '💬', label: 'Facebook', value: 'https://www.facebook.com/SEAEAGLEBEACHRESORTCORP/' },
                 { icon: '🕐', label: 'Operating Hours', value: 'Open 24/7\nFront desk always available' },
               ].map(c => (
                 <div key={c.label} className="flex gap-4">
@@ -55,12 +55,12 @@ export default function ContactPage() {
                 <textarea rows={5} placeholder="How can we help you?"
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-900 bg-white focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 resize-none" />
               </div>
-              <a href="mailto:info@aquaverde.ph"
+              <a href="mailto:info@seaeaglebeachresort.ph"
                 className="block w-full bg-blue-700 hover:bg-blue-800 text-white text-center py-3 rounded-xl text-sm font-medium transition-colors">
                 Send Message
               </a>
               <p className="text-xs text-gray-400 text-center">
-                This will open your email app. Or message us directly at info@aquaverde.ph
+                This will open your email app. Or message us directly at info@seaeaglebeachresort.ph
               </p>
             </div>
           </div>
@@ -71,8 +71,8 @@ export default function ContactPage() {
       <section className="bg-gray-200 h-72 flex items-center justify-center">
         <div className="text-center text-gray-500">
           <div className="text-4xl mb-2">🗺️</div>
-          <div className="font-medium">Sarangani, South Cotabato</div>
-          <div className="text-sm mt-1">Google Maps embed — add your coordinates in the code</div>
+          <div className="font-medium">Pindasan, Mabini, Davao de Oro</div>
+          <div className="text-sm mt-1">Google Maps embed — 7.274954302557035, 125.84010069269104</div>
         </div>
       </section>
     </>

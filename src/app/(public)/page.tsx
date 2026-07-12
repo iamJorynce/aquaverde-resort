@@ -18,13 +18,13 @@ export default async function HomePage() {
         <div className="absolute inset-0 bg-black/20" />
         <div className="relative max-w-6xl mx-auto px-4 py-28 text-center">
           <div className="inline-block bg-white/20 backdrop-blur-sm text-white text-sm px-4 py-1.5 rounded-full mb-6">
-            🌊 Sarangani, South Cotabato
+            🌊 Pindasan, Mabini, Davao de Oro
           </div>
           <h1 className="text-4xl md:text-6xl font-bold mb-6 leading-tight">
             Your Perfect<br />Beach Escape
           </h1>
           <p className="text-lg md:text-xl text-blue-100 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Experience the pristine beauty of AquaVerde — where crystal-clear waters,
+            Experience the pristine beauty of Sea Eagle Beach Resort — where crystal-clear waters,
             lush greenery, and warm Filipino hospitality come together.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -51,7 +51,7 @@ export default async function HomePage() {
       <section className="py-20 bg-white">
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-14">
-            <h2 className="text-3xl font-bold text-gray-800 mb-3">Why Choose AquaVerde?</h2>
+            <h2 className="text-3xl font-bold text-gray-800 mb-3">Why Choose Sea Eagle Beach Resort?</h2>
             <p className="text-gray-500 max-w-xl mx-auto">Everything you need for an unforgettable beach vacation.</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

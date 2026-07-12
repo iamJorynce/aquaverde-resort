@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -20,7 +21,10 @@ export async function middleware(request: NextRequest) {
       },
     }
   )
-
+ const publicPaths = ['/', '/about', '/rooms', '/contact', '/booking']
+  if (publicPaths.some(p => path === p || path.startsWith('/booking/'))) {
+    return NextResponse.next()
+  }
   const { data: { user } } = await supabase.auth.getUser()
 
   const isProtected = request.nextUrl.pathname.startsWith('/dashboard')
@@ -38,5 +42,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/dashboard/:path*', '/api/:path*'],
 }

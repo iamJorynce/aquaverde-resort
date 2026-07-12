@@ -4,7 +4,7 @@ export default function AboutPage() {
       {/* Hero */}
       <section className="bg-gradient-to-br from-blue-900 to-teal-700 text-white py-20">
         <div className="max-w-4xl mx-auto px-4 text-center">
-          <h1 className="text-4xl font-bold mb-4">About AquaVerde</h1>
+          <h1 className="text-4xl font-bold mb-4">About Sea Eagle Beach Resort</h1>
           <p className="text-blue-100 text-lg">A family-owned beach resort dedicated to authentic Filipino hospitality.</p>
         </div>
       </section>
@@ -15,13 +15,13 @@ export default function AboutPage() {
           <div>
             <h2 className="text-3xl font-bold text-gray-800 mb-5">Our Story</h2>
             <p className="text-gray-600 leading-relaxed mb-4">
-              AquaVerde Beach Resort was founded with a simple dream — to create a place where families and friends
+              Sea Eagle Beach Resort was founded with a simple dream — to create a place where families and friends
               could escape the hustle of city life and reconnect with nature.
             </p>
             <p className="text-gray-600 leading-relaxed mb-4">
-              Nestled along the pristine shores of Sarangani, South Cotabato, our resort offers a perfect blend
+              Nestled along the pristine shores of Pindasan, Mabini, Davao de Oro, our resort offers a perfect blend
               of natural beauty and modern comfort. From our well-appointed rooms to our beachside cottages,
-              every corner of AquaVerde is designed to make you feel at home.
+              every corner of Sea Eagle Beach Resort is designed to make you feel at home.
             </p>
             <p className="text-gray-600 leading-relaxed">
               We take pride in our warm, personalized service — because to us, every guest is family.
