@@ -141,15 +141,29 @@ setInvoices(data ?? [])
     : inv.bookings?.cottages?.name ?? 'Accommodation'
 
   const lineItems = isAccommodation
-    ? [
-        { label: roomLabel, amount: Number(inv.subtotal) },
-        ...(addons ?? []).map((a: any) => ({
+  ? [
+      {
+        label: roomLabel,
+        amount: Number(inv.subtotal),
+      },
+      ...(addons ?? []).map((a: any) => ({
+        label: a.name,
+        qty: a.quantity > 1 ? a.quantity : undefined,
+        amount: Number(a.total_price ?? a.unit_price * a.quantity),
+      })),
+    ]
+  : (addons && addons.length > 0)
+      ? addons.map((a: any) => ({
           label: a.name,
           qty: a.quantity > 1 ? a.quantity : undefined,
           amount: Number(a.total_price ?? a.unit_price * a.quantity),
         }))
-      ]
-    : [{ label: 'Day Use Entry', amount: Number(inv.total) }]
+      : [
+          {
+            label: 'Day Use Entry',
+            amount: Number(inv.total),
+          }
+        ]
 
   printReceipt({
     title: 'AquaVerde Beach Resort',

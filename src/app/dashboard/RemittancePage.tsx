@@ -16,42 +16,42 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function RemittancePage() {
   const supabase = createClient()
-  const [tab, setTab] = useState<RemittanceTab>('shift')
+  const [tab, setTab]       = useState<RemittanceTab>('shift')
   const [profile, setProfile] = useState<any>(null)
-  const [toast, setToast] = useState('')
+  const [toast, setToast]   = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Current shift state
-  const [activeShift, setActiveShift]       = useState<any>(null)
-  const [openingFund, setOpeningFund]       = useState(0)
-  const [shiftType, setShiftType]           = useState('AM')
-  const [shiftTxns, setShiftTxns]           = useState<any[]>([])
+  // Shift states
+  const [activeShift, setActiveShift]     = useState<any>(null)   // open shift
+  const [closedShift, setClosedShift]     = useState<any>(null)   // recently closed shift with draft
+  const [shiftTxns, setShiftTxns]         = useState<any[]>([])
+
+  // Open shift form
+  const [openingFund, setOpeningFund] = useState(0)
+  const [shiftType, setShiftType]     = useState('AM')
 
   // Draft remittance / cash count
-  const [draftRemittance, setDraftRemittance] = useState<any>(null)
-  const [actualCash, setActualCash]           = useState(0)
-  const [varianceRemarks, setVarianceRemarks] = useState('')
-  const [remittanceNotes, setRemittanceNotes] = useState('')
+  const [draftRemittance, setDraftRemittance]   = useState<any>(null)
+  const [actualCash, setActualCash]             = useState(0)
+  const [varianceRemarks, setVarianceRemarks]   = useState('')
+  const [remittanceNotes, setRemittanceNotes]   = useState('')
 
   // History
-  const [history, setHistory]   = useState<any[]>([])
-  const [selected, setSelected] = useState<any>(null)
+  const [history, setHistory] = useState<any[]>([])
 
-  // Admin approve view
-  const [pending, setPending]         = useState<any[]>([])
+  // Admin approve
+  const [pending, setPending]           = useState<any[]>([])
   const [rejectionNote, setRejectionNote] = useState('')
 
   const isAdmin = profile?.role === 'super_admin' || profile?.role === 'resort_owner'
 
-  useEffect(() => {
-    loadProfile()
-  }, [])
+  useEffect(() => { loadProfile() }, [])
 
   useEffect(() => {
     if (!profile) return
-    if (tab === 'shift') { loadActiveShift(); loadHistory() }
-    if (tab === 'history') loadHistory()
-    if (tab === 'approve') loadPending()
+    if (tab === 'shift')   { loadShiftState() }
+    if (tab === 'history') { loadHistory() }
+    if (tab === 'approve') { loadPending() }
   }, [tab, profile])
 
   async function loadProfile() {
@@ -61,70 +61,63 @@ export default function RemittancePage() {
     setProfile(data)
   }
 
-  async function loadActiveShift() {
+  // ---- Load all shift state ----
+  async function loadShiftState() {
     if (!profile) return
-    const { data: shift } = await supabase
-      .from('shifts')
-      .select('*')
-      .eq('cashier_id', profile.id)
-      .eq('status', 'open')
-      .order('opened_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
 
-    setActiveShift(shift)
+    // 1. Check for open shift
+    const { data: openShift } = await supabase
+      .from('shifts').select('*')
+      .eq('cashier_id', profile.id).eq('status', 'open')
+      .order('opened_at', { ascending: false }).limit(1).maybeSingle()
 
-    if (shift) {
-      // Load ALL transactions within the shift time range — regardless of
-      // whether they have a shift_id tag. This includes walk-in, check-out,
-      // POS, day use, and equipment rental payments.
-      const shiftStart = shift.opened_at
-      const shiftEnd = shift.closed_at ?? new Date().toISOString()
+    setActiveShift(openShift)
 
-      const [{ data: txns }, { data: dayUseTxns }] = await Promise.all([
-        supabase
-          .from('transactions')
-          .select('amount, payment_method, txn_type, description, created_at')
-          .gte('created_at', shiftStart)
-          .lte('created_at', shiftEnd)
-          .eq('voided', false)
-          .order('created_at'),
-        supabase
-          .from('day_use_entries')
-          .select('total_amount, payment_method, entry_number, created_at')
-          .gte('created_at', shiftStart)
-          .lte('created_at', shiftEnd)
-          .order('created_at'),
-      ])
+    if (openShift) {
+      // Load transactions for open shift
+      await loadShiftTxns(openShift.opened_at, new Date().toISOString())
+    }
 
-      // Normalize day_use_entries into the same shape as transactions
-      const normalizedDayUse = (dayUseTxns ?? []).map((d: any) => ({
-        amount: d.total_amount,
-        payment_method: d.payment_method ?? 'cash',
-        txn_type: 'day_use',
-        description: `Day Use Entry ${d.entry_number}`,
-        created_at: d.created_at,
-      }))
+    // 2. Check for draft remittance (regardless of shift status)
+    const { data: draft } = await supabase
+      .from('remittances').select('*')
+      .eq('cashier_id', profile.id).eq('status', 'draft')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
 
-      const allTxns = [...(txns ?? []), ...normalizedDayUse]
-        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    setDraftRemittance(draft)
 
-      setShiftTxns(allTxns)
+    if (draft) {
+      setActualCash(Number(draft.actual_cash) ?? 0)
+      setVarianceRemarks(draft.variance_remarks ?? '')
+      setRemittanceNotes(draft.notes ?? '')
 
-      // Check if there's already a draft remittance for this shift
-      const { data: draft } = await supabase
-        .from('remittances')
-        .select('*')
-        .eq('shift_id', shift.id)
-        .in('status', ['draft'])
-        .maybeSingle()
-      setDraftRemittance(draft)
-      if (draft) {
-        setActualCash(draft.actual_cash ?? 0)
-        setVarianceRemarks(draft.variance_remarks ?? '')
-        setRemittanceNotes(draft.notes ?? '')
+      // Load the closed shift associated with this draft
+      if (draft.shift_id) {
+        const { data: cs } = await supabase
+          .from('shifts').select('*').eq('id', draft.shift_id).single()
+        setClosedShift(cs)
+        if (cs && !openShift) {
+          await loadShiftTxns(cs.opened_at, cs.closed_at)
+        }
       }
     }
+  }
+
+  async function loadShiftTxns(start: string, end: string) {
+    const [{ data: txns }, { data: dayUseTxns }] = await Promise.all([
+      supabase.from('transactions').select('amount, payment_method, txn_type, description, created_at')
+        .gte('created_at', start).lte('created_at', end).eq('voided', false).order('created_at'),
+      supabase.from('day_use_entries').select('total_amount, payment_method, entry_number, created_at')
+        .gte('created_at', start).lte('created_at', end).order('created_at'),
+    ])
+
+    const normalizedDayUse = (dayUseTxns ?? []).map((d: any) => ({
+      amount: d.total_amount, payment_method: d.payment_method ?? 'cash',
+      txn_type: 'day_use', description: `Day Use ${d.entry_number}`, created_at: d.created_at,
+    }))
+
+    setShiftTxns([...(txns ?? []), ...normalizedDayUse]
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()))
   }
 
   async function loadHistory() {
@@ -138,8 +131,7 @@ export default function RemittancePage() {
 
   async function loadPending() {
     const { data } = await supabase
-      .from('remittances')
-      .select('*, shifts(shift_type, opened_at, closed_at)')
+      .from('remittances').select('*, shifts(shift_type, opened_at, closed_at)')
       .in('status', ['submitted', 'verified'])
       .order('submitted_at', { ascending: false })
     setPending(data ?? [])
@@ -152,57 +144,29 @@ export default function RemittancePage() {
     if (!profile) return
     setLoading(true)
     const shiftNumber = `SHF-${Date.now().toString().slice(-8)}`
-    const { data: shift, error } = await supabase.from('shifts').insert({
-      shift_number: shiftNumber,
-      cashier_id: profile.id,
-      cashier_name: profile.full_name,
-      shift_type: shiftType,
-      opening_fund: openingFund,
-    }).select().single()
-
-    if (error) { showToast('Error: ' + error.message); setLoading(false); return }
-
-    await logActivity(supabase, {
-      action: 'SHIFT_OPENED',
-      details: `${shiftNumber} — ${shiftType} shift, opening fund ₱${openingFund}`,
+    const { error } = await supabase.from('shifts').insert({
+      shift_number: shiftNumber, cashier_id: profile.id,
+      cashier_name: profile.full_name, shift_type: shiftType, opening_fund: openingFund,
     })
+    if (error) { showToast('Error: ' + error.message); setLoading(false); return }
+    await logActivity(supabase, { action: 'SHIFT_OPENED', details: `${shiftNumber} — ${shiftType}, opening fund ₱${openingFund}` })
     showToast(`Shift ${shiftNumber} opened.`)
     setLoading(false)
-    loadActiveShift()
+    loadShiftState()
   }
 
-  // ---- Close shift & generate remittance ----
-  async function closeShiftAndGenerateRemittance() {
+  // ---- Close shift ----
+  async function closeShift() {
     if (!activeShift) return
     setLoading(true)
 
     const closedAt = new Date().toISOString()
-
-    // Close the shift first
     await supabase.from('shifts').update({ status: 'closed', closed_at: closedAt }).eq('id', activeShift.id)
 
-    // Re-fetch ALL transactions within the shift time range for accurate totals
-    const shiftStart = activeShift.opened_at
-
-    const [{ data: txns }, { data: dayUseTxns }] = await Promise.all([
-      supabase
-        .from('transactions')
-        .select('amount, payment_method, txn_type')
-        .gte('created_at', shiftStart)
-        .lte('created_at', closedAt)
-        .eq('voided', false),
-      supabase
-        .from('day_use_entries')
-        .select('total_amount, payment_method')
-        .gte('created_at', shiftStart)
-        .lte('created_at', closedAt),
-    ])
-
+    // Compute collections
     const allTxns = [
-      ...(txns ?? []).map((t: any) => ({ amount: t.amount, payment_method: t.payment_method ?? 'other' })),
-      ...(dayUseTxns ?? []).map((d: any) => ({ amount: d.total_amount, payment_method: d.payment_method ?? 'cash' })),
+      ...shiftTxns.map((t: any) => ({ amount: t.amount, payment_method: t.payment_method ?? 'other' })),
     ]
-
     const gross = allTxns.reduce((s, t) => s + Number(t.amount), 0)
     const byMethod = allTxns.reduce((acc: any, t) => {
       const m = t.payment_method ?? 'other'
@@ -211,40 +175,36 @@ export default function RemittancePage() {
     }, {})
 
     const remittanceNumber = `REM-${Date.now().toString().slice(-8)}`
-    const { data: rem, error } = await supabase.from('remittances').insert({
+    const { error } = await supabase.from('remittances').insert({
       remittance_number: remittanceNumber,
       shift_id: activeShift.id,
       cashier_id: profile.id,
       cashier_name: profile.full_name,
       gross_collections: gross,
-      cash_collections: byMethod['cash'] ?? 0,
-      gcash_collections: byMethod['gcash'] ?? 0,
-      maya_collections: byMethod['maya'] ?? 0,
+      cash_collections:         byMethod['cash']          ?? 0,
+      gcash_collections:        byMethod['gcash']         ?? 0,
+      maya_collections:         byMethod['maya']          ?? 0,
       bank_transfer_collections: byMethod['bank_transfer'] ?? 0,
-      card_collections: byMethod['credit_card'] ?? 0,
-      other_collections: byMethod['other'] ?? 0,
+      card_collections:         byMethod['credit_card']   ?? 0,
+      other_collections:        byMethod['other']         ?? 0,
       opening_fund: activeShift.opening_fund,
       actual_cash: 0,
       status: 'draft',
-    }).select().single()
-
-    if (error) { showToast('Error: ' + error.message); setLoading(false); return }
-
-    await logActivity(supabase, {
-      action: 'SHIFT_CLOSED',
-      details: `${activeShift.shift_number} closed — gross ₱${gross.toLocaleString()}`,
     })
 
-    showToast('Shift closed. Please perform cash count.')
+    if (error) { showToast('Error creating remittance: ' + error.message); setLoading(false); return }
+
+    await logActivity(supabase, { action: 'SHIFT_CLOSED', details: `${activeShift.shift_number} — gross ₱${gross.toLocaleString()}` })
+    showToast('Shift closed. Please complete your cash count below.')
     setLoading(false)
-    loadActiveShift()
+    setActiveShift(null)
+    loadShiftState()
   }
 
   // ---- Save cash count ----
   async function saveCashCount() {
     if (!draftRemittance) return
     setLoading(true)
-
     const expected = Number(draftRemittance.opening_fund) + Number(draftRemittance.cash_collections)
     const variance = actualCash - expected
     const varianceStatus = Math.abs(variance) < 0.01 ? 'balanced' : variance < 0 ? 'short' : 'over'
@@ -259,40 +219,42 @@ export default function RemittancePage() {
     if (error) { showToast('Error: ' + error.message); setLoading(false); return }
     showToast('Cash count saved.')
     setLoading(false)
-    loadActiveShift()
+    loadShiftState()
   }
 
   // ---- Submit remittance ----
   async function submitRemittance() {
     if (!draftRemittance) return
-    if (draftRemittance.variance_status !== 'balanced' && !varianceRemarks) {
+    const expected = Number(draftRemittance.opening_fund) + Number(draftRemittance.cash_collections)
+    const variance = actualCash - expected
+    const varianceStatus = Math.abs(variance) < 0.01 ? 'balanced' : variance < 0 ? 'short' : 'over'
+
+    if (varianceStatus !== 'balanced' && !varianceRemarks) {
       showToast('Please enter variance remarks before submitting.'); return
     }
-    setLoading(true)
 
+    setLoading(true)
     const { error } = await supabase.from('remittances').update({
       status: 'submitted',
       submitted_at: new Date().toISOString(),
       actual_cash: actualCash,
+      variance_status: varianceStatus,
       variance_remarks: varianceRemarks || null,
       notes: remittanceNotes || null,
     }).eq('id', draftRemittance.id)
 
     if (error) { showToast('Error: ' + error.message); setLoading(false); return }
 
-    await logActivity(supabase, {
-      action: 'REMITTANCE_SUBMITTED',
-      details: `${draftRemittance.remittance_number} — net ₱${Number(draftRemittance.net_collections).toLocaleString()}`,
-    })
-
-    showToast('Remittance submitted for approval.')
+    await logActivity(supabase, { action: 'REMITTANCE_SUBMITTED', details: `${draftRemittance.remittance_number}` })
+    showToast('Remittance submitted for approval!')
     setLoading(false)
-    setActiveShift(null)
+    setDraftRemittance(null)
+    setClosedShift(null)
     loadHistory()
     setTab('history')
   }
 
-  // ---- Admin: approve/reject ----
+  // ---- Approve / Reject ----
   async function approveRemittance(rem: any) {
     setLoading(true)
     const { error } = await supabase.from('remittances').update({
@@ -325,30 +287,29 @@ export default function RemittancePage() {
     loadPending()
   }
 
-  // ---- Computed shift summary ----
+  // ---- Computed values ----
   const grossCollections = shiftTxns.reduce((s, t) => s + Number(t.amount), 0)
   const byMethod = shiftTxns.reduce((acc: any, t) => {
     const m = t.payment_method ?? 'other'
     acc[m] = (acc[m] ?? 0) + Number(t.amount)
     return acc
   }, {})
-  const expectedCash = (activeShift?.opening_fund ?? 0) + (byMethod['cash'] ?? 0)
+
+  const expectedCash = draftRemittance
+    ? Number(draftRemittance.opening_fund) + Number(draftRemittance.cash_collections)
+    : (activeShift ? Number(activeShift.opening_fund) + (byMethod['cash'] ?? 0) : 0)
   const variance = actualCash - expectedCash
   const varianceStatus = Math.abs(variance) < 0.01 ? 'balanced' : variance < 0 ? 'short' : 'over'
 
+  // ---- Print ----
   function printRemittance(rem: any) {
     const win = window.open('', '_blank', 'width=420,height=700')
     if (!win) return
-    win.document.write(`
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>Remittance ${rem.remittance_number}</title>
-<style>
-  body { font-family: 'Courier New', monospace; font-size: 13px; padding: 24px; max-width: 380px; margin: 0 auto; color: #111; }
-  .center { text-align: center; } .title { font-size: 15px; font-weight: bold; }
-  .divider { border-top: 1px dashed #999; margin: 10px 0; }
-  .row { display: flex; justify-content: space-between; padding: 3px 0; }
-  .bold { font-weight: bold; } .small { font-size: 11px; color: #555; }
-  @media print { body { padding: 4px; } }
-</style></head><body>
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Remittance ${rem.remittance_number}</title>
+<style>body{font-family:'Courier New',monospace;font-size:13px;padding:24px;max-width:380px;margin:0 auto;color:#111}
+.center{text-align:center}.title{font-size:15px;font-weight:bold}.divider{border-top:1px dashed #999;margin:10px 0}
+.row{display:flex;justify-content:space-between;padding:3px 0}.bold{font-weight:bold}.small{font-size:11px;color:#555}
+@media print{body{padding:4px}}</style></head><body>
 <div class="center"><div class="title">AquaVerde Beach Resort</div><div class="small">Remittance Report</div></div>
 <div class="divider"></div>
 <div class="row"><span>Remittance #</span><span>${rem.remittance_number}</span></div>
@@ -357,8 +318,6 @@ export default function RemittancePage() {
 <div class="row"><span>Status</span><span>${rem.status.toUpperCase()}</span></div>
 <div class="divider"></div>
 <div class="row"><span>Gross Collections</span><span>₱${Number(rem.gross_collections).toLocaleString()}</span></div>
-<div class="row"><span>Discounts</span><span>-₱${Number(rem.total_discounts).toLocaleString()}</span></div>
-<div class="row"><span>Refunds</span><span>-₱${Number(rem.total_refunds).toLocaleString()}</span></div>
 <div class="row bold"><span>Net Collections</span><span>₱${Number(rem.net_collections).toLocaleString()}</span></div>
 <div class="divider"></div>
 <div class="row"><span>Cash</span><span>₱${Number(rem.cash_collections).toLocaleString()}</span></div>
@@ -370,20 +329,19 @@ export default function RemittancePage() {
 <div class="row"><span>Opening Fund</span><span>₱${Number(rem.opening_fund).toLocaleString()}</span></div>
 <div class="row"><span>Expected Cash</span><span>₱${Number(rem.expected_cash).toLocaleString()}</span></div>
 <div class="row"><span>Actual Cash</span><span>₱${Number(rem.actual_cash).toLocaleString()}</span></div>
-<div class="row bold ${rem.variance > 0 ? '' : rem.variance < 0 ? '' : ''}"><span>Variance</span><span>${Number(rem.variance) >= 0 ? '+' : ''}₱${Number(rem.variance).toLocaleString()} (${rem.variance_status})</span></div>
-${rem.variance_remarks ? `<div class="small" style="margin-top:4px;">Remarks: ${rem.variance_remarks}</div>` : ''}
+<div class="row bold"><span>Variance (${rem.variance_status})</span><span>${Number(rem.variance) >= 0 ? '+' : ''}₱${Number(rem.variance).toLocaleString()}</span></div>
+${rem.variance_remarks ? `<div class="small">Remarks: ${rem.variance_remarks}</div>` : ''}
 <div class="divider"></div>
 ${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>${rem.approved_by_name}</span></div>` : ''}
-${rem.approved_at ? `<div class="row small"><span>Approved at</span><span>${new Date(rem.approved_at).toLocaleDateString('en-PH')}</span></div>` : ''}
-<div style="margin-top:24px; display:flex; justify-content:space-between; font-size:11px;">
-  <div style="text-align:center; width:45%"><div style="margin-top:24px; border-top:1px solid #000;"></div><div>Cashier Signature</div></div>
-  <div style="text-align:center; width:45%"><div style="margin-top:24px; border-top:1px solid #000;"></div><div>Manager Signature</div></div>
+<div style="margin-top:32px;display:flex;justify-content:space-between;font-size:11px;">
+<div style="text-align:center;width:45%"><div style="margin-top:24px;border-top:1px solid #000"></div><div>Cashier Signature</div></div>
+<div style="text-align:center;width:45%"><div style="margin-top:24px;border-top:1px solid #000"></div><div>Manager Signature</div></div>
 </div>
-<script>window.onload = function() { window.print(); }</script>
-</body></html>`)
+<script>window.onload=function(){window.print()}</script></body></html>`)
     win.document.close()
   }
 
+  // ---- Render ----
   return (
     <div>
       {toast && (
@@ -392,7 +350,7 @@ ${rem.approved_at ? `<div class="row small"><span>Approved at</span><span>${new 
         </div>
       )}
 
-      {/* Tab nav */}
+      {/* Tabs */}
       <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
         <button onClick={() => setTab('shift')}
           className={`px-4 py-1.5 rounded-md text-xs font-medium ${tab === 'shift' ? 'bg-white shadow-sm' : 'text-gray-500'}`}>
@@ -410,144 +368,124 @@ ${rem.approved_at ? `<div class="row small"><span>Approved at</span><span>${new 
         )}
       </div>
 
-      {/* ===== CURRENT SHIFT ===== */}
+      {/* ===== CURRENT SHIFT TAB ===== */}
       {tab === 'shift' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-          {/* Left: shift info / open shift */}
           <div className="space-y-4">
-            {!activeShift ? (
+
+            {/* STATE 1: No open shift + no draft = Open Shift form */}
+            {!activeShift && !draftRemittance && (
               <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
-                <div className="text-sm font-medium text-gray-700">No Active Shift</div>
-                <div className="text-xs text-gray-400">
-                  Your shift is automatically prompted at login. If you skipped it, you can open one here.
-                </div>
+                <div className="text-sm font-semibold text-gray-700">Open New Shift</div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Shift Type</label>
                   <select value={shiftType} onChange={e => setShiftType(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white">
-                    <option value="AM">AM</option>
-                    <option value="PM">PM</option>
-                    <option value="Night">Night</option>
+                    <option value="AM">AM Shift</option>
+                    <option value="PM">PM Shift</option>
+                    <option value="Night">Night Shift</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Opening Fund (₱)</label>
-                  <input type="number" value={openingFund} onChange={e => setOpeningFund(parseFloat(e.target.value) || 0)}
-                    placeholder="Starting cash on hand"
+                  <input type="number" value={openingFund || ''} onChange={e => setOpeningFund(parseFloat(e.target.value) || 0)}
+                    placeholder="Enter amount received from manager"
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
                 </div>
                 <button onClick={openShift} disabled={loading}
-                  className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg">
-                  Open Shift
+                  className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg font-medium">
+                  {loading ? 'Opening...' : 'Open Shift'}
                 </button>
-              </div>
-            ) : (
-              <div className="bg-white border border-gray-100 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-sm font-medium text-gray-700">Active Shift</div>
-                  <span className="text-xs bg-green-100 text-green-700 px-2.5 py-0.5 rounded-full font-medium">Open</span>
-                </div>
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-400">Shift #</span><span className="font-medium">{activeShift.shift_number}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-400">Cashier</span><span>{activeShift.cashier_name}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-400">Type</span><span>{activeShift.shift_type}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-400">Opened</span><span>{new Date(activeShift.opened_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-400">Opening Fund</span><span>₱{Number(activeShift.opening_fund).toLocaleString()}</span></div>
-                </div>
               </div>
             )}
 
+            {/* STATE 2: Active open shift */}
             {activeShift && !draftRemittance && (
-              <div className="bg-white border border-gray-100 rounded-xl p-4">
-                <div className="text-sm font-medium text-gray-700 mb-3">End Shift</div>
-                <p className="text-xs text-gray-400 mb-3">Closing your shift will generate your remittance report based on all transactions this shift.</p>
-                <button onClick={closeShiftAndGenerateRemittance} disabled={loading}
-                  className="w-full py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-sm rounded-lg">
-                  Close Shift & Generate Remittance
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Right: transactions + cash count */}
-          <div className="space-y-4">
-            {activeShift && (
-              <div className="bg-white border border-gray-100 rounded-xl p-4">
-                <div className="text-sm font-medium text-gray-700 mb-3">
-                  Collections This Shift ({shiftTxns.length} transactions)
-                </div>
-                <div className="space-y-1.5 text-sm mb-3">
-                  <div className="flex justify-between font-medium text-gray-700">
-                    <span>Gross Collections</span>
-                    <span>₱{grossCollections.toLocaleString()}</span>
+              <>
+                <div className="bg-white border border-gray-100 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-sm font-semibold text-gray-700">Active Shift</div>
+                    <span className="text-xs bg-green-100 text-green-700 px-2.5 py-0.5 rounded-full font-medium">Open</span>
                   </div>
-
-                  {/* By transaction type */}
-                  {Object.entries(
-                    shiftTxns.reduce((acc: any, t) => {
-                      const type = t.txn_type ?? 'other'
-                      acc[type] = (acc[type] ?? 0) + Number(t.amount)
-                      return acc
-                    }, {})
-                  ).map(([type, amount]) => (
-                    <div key={type} className="flex justify-between text-xs pl-3">
-                      <span className="text-gray-400 capitalize">{type.replace(/_/g, ' ')}</span>
-                      <span className="text-gray-600">₱{Number(amount).toLocaleString()}</span>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between"><span className="text-gray-400">Shift #</span><span className="font-medium">{activeShift.shift_number}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-400">Cashier</span><span>{activeShift.cashier_name}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-400">Type</span><span>{activeShift.shift_type}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-400">Opened</span>
+                      <span>{new Date(activeShift.opened_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
-                  ))}
-
-                  <div className="border-t border-gray-100 pt-1.5 mt-1">
-                    <div className="text-xs font-medium text-gray-500 mb-1">By Payment Method</div>
-                    {Object.entries(byMethod).map(([method, amount]) => (
-                      <div key={method} className="flex justify-between text-xs pl-3">
-                        <span className="text-gray-400 capitalize">{method.replace(/_/g, ' ')}</span>
-                        <span className="text-gray-600">₱{Number(amount).toLocaleString()}</span>
-                      </div>
-                    ))}
+                    <div className="flex justify-between"><span className="text-gray-400">Opening Fund</span><span>₱{Number(activeShift.opening_fund).toLocaleString()}</span></div>
                   </div>
                 </div>
-                <div className="max-h-40 overflow-y-auto">
-                  {shiftTxns.map((t, i) => (
-                    <div key={i} className="flex justify-between text-xs py-1 border-t border-gray-50">
-                      <span className="text-gray-500 truncate max-w-[200px]">{t.description ?? t.txn_type}</span>
-                      <span className="text-gray-700 ml-2">₱{Number(t.amount).toLocaleString()}</span>
-                    </div>
-                  ))}
+
+                <div className="bg-white border border-gray-100 rounded-xl p-4">
+                  <div className="text-sm font-semibold text-gray-700 mb-2">End Shift</div>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Closing your shift will compute all collections and generate your remittance report for cash counting.
+                  </p>
+                  <button onClick={closeShift} disabled={loading}
+                    className="w-full py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-sm rounded-lg font-medium">
+                    {loading ? 'Closing...' : 'Close Shift & Generate Remittance'}
+                  </button>
                 </div>
-              </div>
+              </>
             )}
 
+            {/* STATE 3: Draft remittance — cash count + submit */}
             {draftRemittance && (
               <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
-                <div className="text-sm font-medium text-gray-700">Cash Count</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold text-gray-700">Cash Count</div>
+                  <span className="text-xs bg-amber-100 text-amber-700 px-2.5 py-0.5 rounded-full font-medium">
+                    {draftRemittance.remittance_number}
+                  </span>
+                </div>
 
                 <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
-                  <div className="flex justify-between"><span className="text-gray-400">Opening Fund</span><span>₱{Number(draftRemittance.opening_fund).toLocaleString()}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-400">Cash Collections</span><span>₱{Number(draftRemittance.cash_collections).toLocaleString()}</span></div>
-                  <div className="flex justify-between font-medium"><span>Expected Cash</span><span>₱{expectedCash.toLocaleString()}</span></div>
+                  <div className="flex justify-between text-gray-500"><span>Gross Collections</span><span>₱{Number(draftRemittance.gross_collections).toLocaleString()}</span></div>
+                  <div className="flex justify-between text-gray-500 pl-3 text-xs">
+                    <span>Cash</span><span>₱{Number(draftRemittance.cash_collections).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500 pl-3 text-xs">
+                    <span>GCash</span><span>₱{Number(draftRemittance.gcash_collections).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500 pl-3 text-xs">
+                    <span>Maya</span><span>₱{Number(draftRemittance.maya_collections).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500 pl-3 text-xs">
+                    <span>Bank Transfer</span><span>₱{Number(draftRemittance.bank_transfer_collections).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between font-medium text-gray-700 border-t border-gray-200 pt-1 mt-1">
+                    <span>Opening Fund</span><span>₱{Number(draftRemittance.opening_fund).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between font-medium text-gray-700">
+                    <span>Expected Cash</span><span>₱{expectedCash.toLocaleString()}</span>
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Actual Cash Count (₱)</label>
-                  <input type="number" value={actualCash} onChange={e => setActualCash(parseFloat(e.target.value) || 0)}
+                  <input type="number" value={actualCash || ''} onChange={e => setActualCash(parseFloat(e.target.value) || 0)}
+                    placeholder="Enter actual cash counted"
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
                 </div>
 
-                <div className={`rounded-lg p-3 text-sm font-medium flex justify-between ${
-                  varianceStatus === 'balanced' ? 'bg-green-50 text-green-700' :
-                  varianceStatus === 'short'    ? 'bg-red-50 text-red-700' :
-                  'bg-amber-50 text-amber-700'
-                }`}>
-                  <span>Variance ({varianceStatus})</span>
-                  <span>{variance >= 0 ? '+' : ''}₱{variance.toLocaleString()}</span>
-                </div>
+                {actualCash > 0 && (
+                  <div className={`rounded-lg p-3 text-sm font-medium flex justify-between ${
+                    varianceStatus === 'balanced' ? 'bg-green-50 text-green-700' :
+                    varianceStatus === 'short'    ? 'bg-red-50 text-red-700' :
+                    'bg-amber-50 text-amber-700'
+                  }`}>
+                    <span>Variance ({varianceStatus})</span>
+                    <span>{variance >= 0 ? '+' : ''}₱{variance.toLocaleString()}</span>
+                  </div>
+                )}
 
-                {varianceStatus !== 'balanced' && (
+                {varianceStatus !== 'balanced' && actualCash > 0 && (
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Variance Remarks (required)</label>
                     <input value={varianceRemarks} onChange={e => setVarianceRemarks(e.target.value)}
-                      placeholder="e.g. Cash counting error"
+                      placeholder="e.g. Cash counting error, missing receipt..."
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
                   </div>
                 )}
@@ -563,28 +501,70 @@ ${rem.approved_at ? `<div class="row small"><span>Approved at</span><span>${new 
                     className="flex-1 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm rounded-lg">
                     Save Draft
                   </button>
-                  <button onClick={submitRemittance} disabled={loading}
-                    className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg">
-                    Submit for Approval
+                  <button onClick={submitRemittance} disabled={loading || actualCash <= 0}
+                    className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg font-medium">
+                    {loading ? 'Submitting...' : 'Submit for Approval'}
                   </button>
                 </div>
+
+                {actualCash <= 0 && (
+                  <div className="text-xs text-amber-600 text-center">Enter actual cash count before submitting.</div>
+                )}
               </div>
+            )}
+          </div>
+
+          {/* Right: transactions list */}
+          <div className="bg-white border border-gray-100 rounded-xl p-4">
+            <div className="text-sm font-semibold text-gray-700 mb-3">
+              {draftRemittance && closedShift ? `Collections — ${closedShift.shift_number}` :
+               activeShift ? 'Collections This Shift' : 'No active shift'}
+              <span className="text-xs text-gray-400 font-normal ml-2">({shiftTxns.length} transactions)</span>
+            </div>
+
+            {shiftTxns.length === 0 ? (
+              <div className="text-center py-8 text-gray-400 text-xs">No transactions yet.</div>
+            ) : (
+              <>
+                <div className="space-y-1.5 mb-3 text-sm">
+                  <div className="flex justify-between font-medium text-gray-700">
+                    <span>Gross</span><span>₱{grossCollections.toLocaleString()}</span>
+                  </div>
+                  {Object.entries(byMethod).map(([method, amount]) => (
+                    <div key={method} className="flex justify-between text-xs pl-3 text-gray-500">
+                      <span className="capitalize">{method.replace('_', ' ')}</span>
+                      <span>₱{Number(amount).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border-t border-gray-100 pt-3 space-y-1 max-h-64 overflow-y-auto">
+                  {shiftTxns.map((t, i) => (
+                    <div key={i} className="flex justify-between text-xs py-1 border-b border-gray-50">
+                      <span className="text-gray-500 truncate max-w-[200px]">{t.description}</span>
+                      <span className="text-gray-700 ml-2">₱{Number(t.amount).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>
       )}
 
-      {/* ===== HISTORY ===== */}
+      {/* ===== HISTORY TAB ===== */}
       {tab === 'history' && (
         <div className="space-y-3">
           {history.length === 0 ? (
             <div className="text-center py-12 text-gray-400 text-sm">No remittances yet.</div>
           ) : history.map(rem => (
             <div key={rem.id} className="bg-white border border-gray-100 rounded-xl p-4">
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="text-sm font-medium text-gray-700">{rem.remittance_number}</div>
-                  <div className="text-xs text-gray-400">{rem.cashier_name} · {new Date(rem.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                  <div className="text-xs text-gray-400">
+                    {rem.cashier_name} · {new Date(rem.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[rem.status]}`}>{rem.status}</span>
@@ -595,27 +575,25 @@ ${rem.approved_at ? `<div class="row small"><span>Approved at</span><span>${new 
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
+              <div className="grid grid-cols-3 gap-3 text-sm">
                 <div className="bg-gray-50 rounded-lg p-2 text-center">
                   <div className="text-xs text-gray-400">Net Collections</div>
                   <div className="font-medium">₱{Number(rem.net_collections).toLocaleString()}</div>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-2 text-center">
+                  <div className="text-xs text-gray-400">Actual Cash</div>
+                  <div className="font-medium">₱{Number(rem.actual_cash).toLocaleString()}</div>
+                </div>
+                <div className={`rounded-lg p-2 text-center ${Number(rem.variance) === 0 ? 'bg-green-50' : 'bg-red-50'}`}>
                   <div className="text-xs text-gray-400">Variance</div>
-                  <div className={`font-medium ${Number(rem.variance) === 0 ? 'text-green-600' : Number(rem.variance) < 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                  <div className={`font-medium ${Number(rem.variance) < 0 ? 'text-red-600' : Number(rem.variance) > 0 ? 'text-amber-600' : 'text-green-600'}`}>
                     {Number(rem.variance) >= 0 ? '+' : ''}₱{Number(rem.variance).toLocaleString()}
                   </div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-2 text-center">
-                  <div className="text-xs text-gray-400">Variance Status</div>
-                  <div className="font-medium capitalize">{rem.variance_status}</div>
                 </div>
               </div>
 
               {rem.status === 'rejected' && rem.rejection_remarks && (
-                <div className="mt-2 text-xs text-red-600 bg-red-50 rounded p-2">
-                  Rejected: {rem.rejection_remarks}
-                </div>
+                <div className="mt-2 text-xs text-red-600 bg-red-50 rounded p-2">Rejected: {rem.rejection_remarks}</div>
               )}
               {rem.approved_by_name && rem.status === 'approved' && (
                 <div className="mt-2 text-xs text-green-600">Approved by {rem.approved_by_name}</div>
@@ -625,17 +603,23 @@ ${rem.approved_at ? `<div class="row small"><span>Approved at</span><span>${new 
         </div>
       )}
 
-      {/* ===== ADMIN: APPROVE ===== */}
+      {/* ===== APPROVE TAB (admin only) ===== */}
       {tab === 'approve' && isAdmin && (
         <div className="space-y-4">
           {pending.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 text-sm">No pending remittances to review.</div>
+            <div className="text-center py-12 bg-white border border-gray-100 rounded-xl text-gray-400 text-sm">
+              No pending remittances to review. 🎉
+            </div>
           ) : pending.map(rem => (
             <div key={rem.id} className="bg-white border border-gray-100 rounded-xl p-4">
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="text-sm font-medium text-gray-700">{rem.remittance_number}</div>
-                  <div className="text-xs text-gray-400">{rem.cashier_name} · Submitted {rem.submitted_at ? new Date(rem.submitted_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</div>
+                  <div className="text-xs text-gray-400">
+                    {rem.cashier_name} · Submitted {rem.submitted_at
+                      ? new Date(rem.submitted_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                      : '—'}
+                  </div>
                 </div>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[rem.status]}`}>{rem.status}</span>
               </div>
@@ -659,7 +643,7 @@ ${rem.approved_at ? `<div class="row small"><span>Approved at</span><span>${new 
               )}
 
               <div className="mb-3">
-                <label className="block text-xs text-gray-500 mb-1">Rejection reason (required if rejecting)</label>
+                <label className="block text-xs text-gray-500 mb-1">Rejection reason (if rejecting)</label>
                 <input value={rejectionNote} onChange={e => setRejectionNote(e.target.value)}
                   placeholder="Enter reason for rejection..."
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
@@ -667,12 +651,12 @@ ${rem.approved_at ? `<div class="row small"><span>Approved at</span><span>${new 
 
               <div className="flex gap-2">
                 <button onClick={() => approveRemittance(rem)} disabled={loading}
-                  className="flex-1 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white text-sm rounded-lg">
-                  Approve
+                  className="flex-1 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white text-sm rounded-lg font-medium">
+                  ✓ Approve
                 </button>
                 <button onClick={() => rejectRemittance(rem)} disabled={loading}
-                  className="flex-1 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-sm rounded-lg">
-                  Reject
+                  className="flex-1 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-sm rounded-lg font-medium">
+                  ✗ Reject
                 </button>
                 <button onClick={() => printRemittance(rem)}
                   className="px-4 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm rounded-lg">

@@ -152,7 +152,8 @@ export default function CottagesPage() {
                 {c.status}
               </span>
               <div className="text-xs text-blue-600 font-medium mt-2">
-                ₱{Number(c.day_rate).toLocaleString()}/day
+                ₱{Number(c.day_rate).toLocaleString()}/day <br/>
+                ₱{Number(c.overnight_rate).toLocaleString()}/overnight 
               </div>
               <select
                 value={c.status}
