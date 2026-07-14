@@ -183,26 +183,56 @@ export default function CheckInOutPage() {
     setPendingCheckoutBooking(null)
 
     // Day use: go straight to checked_out after equipment return
-    if (finalBooking.accommodation_type === 'day_use') {
-      await supabase.from('bookings').update({
-        status: 'checked_out',
-        actual_check_out: returnedAt,
-      }).eq('id', finalBooking.id)
+   if (finalBooking.accommodation_type === 'day_use') {
+  await supabase.from('bookings').update({
+    status: 'checked_out',
+    actual_check_out: returnedAt,
+  }).eq('id', finalBooking.id)
 
-      if (damageTotal > 0) {
-        await supabase.from('transactions').insert({
-          txn_number: `TXN-${Date.now()}`,
-          booking_id: finalBooking.id,
-          txn_type: 'room',
-          description: `Damage charges — ${finalBooking.booking_number}`,
-          amount: damageTotal,
-          payment_method: 'cash',
-        })
-      }
-      showToast(`Equipment returned.${damageTotal > 0 ? ` Damage charge: ₱${damageTotal.toLocaleString()}` : ' All items in good condition.'}`)
-      load()
-      return
+  // Handle cottage cleanup (same logic as checkOutDayUse)
+  const allCottageIds = finalBooking.cottage_ids?.length
+    ? finalBooking.cottage_ids
+    : (finalBooking.cottage_id ? [finalBooking.cottage_id] : [])
+
+  for (const cottageId of allCottageIds) {
+    await supabase.from('cottages').update({ status: 'cleaning' }).eq('id', cottageId)
+
+    const { data: existingTask } = await supabase
+      .from('housekeeping_tasks')
+      .select('id')
+      .eq('cottage_id', cottageId)
+      .in('status', ['pending', 'in_progress'])
+      .maybeSingle()
+
+    if (!existingTask) {
+      await supabase.from('housekeeping_tasks').insert({
+        task_number: `HK-${Date.now()}-${cottageId.slice(0, 4)}`,
+        cottage_id: cottageId,
+        task_type: 'checkout_cleaning',
+        priority: 'high',
+        status: 'pending',
+        notes: `Day use checkout — ${finalBooking.booking_number}`,
+      })
     }
+  }
+
+  // Damage charges (existing code)
+  const damageTotal = Object.values(equipmentConditions).reduce((s, c) => s + (c.charge ?? 0), 0)
+  if (damageTotal > 0) {
+    await supabase.from('transactions').insert({
+      txn_number: `TXN-${Date.now()}`,
+      booking_id: finalBooking.id,
+      txn_type: 'room',
+      description: `Damage charges — ${finalBooking.booking_number}`,
+      amount: damageTotal,
+      payment_method: 'cash',
+    })
+  }
+
+  showToast(`Equipment returned.${damageTotal > 0 ? ` Damage charge: ₱${damageTotal.toLocaleString()}` : ' All items in good condition.'}${allCottageIds.length > 0 ? ` ${allCottageIds.length} cottage(s) set to cleaning.` : ''}`)
+  load()
+  return
+}
 
     // Overnight: proceed to payment modal
     const { data: updatedAddons } = await supabase.from('booking_addons').select('*').eq('booking_id', finalBooking.id).order('created_at')
@@ -487,7 +517,9 @@ for (const cottageId of allCottageIds) {
                     ) : activeStays.map(b => (
                       <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
                         <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
+
                         <td className="px-4 py-2.5">{(b.guests as any)?.full_name}</td>
+
                         <td className="px-4 py-2.5">
                           <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
                             {(b.num_adults ?? 0) + (b.num_children ?? 0)} pax
@@ -497,8 +529,7 @@ for (const cottageId of allCottageIds) {
                           </div>
                         </td>
                         <td className="px-4 py-2.5 text-gray-500">
-                          {b.rooms ? `Room ${(b.rooms as any).room_number}` : (b.cottages as any)?.name}
-                        </td>
+                           {b.rooms? `Room ${(b.rooms as any).room_number}`: (b.cottages as any)?.name}</td>
                         <td className="px-4 py-2.5 text-gray-500">{b.check_in_date}</td>
                         <td className="px-4 py-2.5 text-gray-500">{b.check_out_date}</td>
                         <td className="px-4 py-2.5 text-gray-500">{b.wristband_number ?? '—'}</td>
@@ -617,6 +648,7 @@ for (const cottageId of allCottageIds) {
                               {b.booking_number} · Entered {new Date(b.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           </div>
+                          
                           <div className="text-right">
                             <div className="text-sm font-semibold text-blue-700">{pax} pax</div>
                             <div className="text-xs text-gray-400">
@@ -627,6 +659,7 @@ for (const cottageId of allCottageIds) {
                             </div>
                           </div>
                         </div>
+                
 
                         {/* Unreturned equipment */}
                         {hasUnreturnedEquipment && (
@@ -650,7 +683,9 @@ for (const cottageId of allCottageIds) {
                               className="w-full py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg font-medium">
                               Return Equipment First ({b.rentals.length} item{b.rentals.length > 1 ? 's' : ''})
                             </button>
-                          </div>
+
+                            
+                            </div>
                         )}
 
                         {!hasUnreturnedEquipment && (

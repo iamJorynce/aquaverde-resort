@@ -234,6 +234,7 @@ setInvoices(data ?? [])
                 <th className="text-left px-4 py-2.5">Invoice</th>
                 <th className="text-left px-4 py-2.5">Guest</th>
                 <th className="text-left px-4 py-2.5">Booking</th>
+                <th className="text-left px-4 py-2.5">Accomodation Type</th>
                 <th className="text-left px-4 py-2.5">Total</th>
                 <th className="text-left px-4 py-2.5">Paid</th>
                 <th className="text-left px-4 py-2.5">Balance</th>
@@ -252,6 +253,7 @@ setInvoices(data ?? [])
                     {inv.guests?.phone && <div className="text-xs text-gray-400">{inv.guests.phone}</div>}
                   </td>
                   <td className="px-4 py-2.5 text-gray-500">{inv.bookings?.booking_number ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-gray-500">{inv.bookings?.accommodation_type ?? '—'}</td>
                   <td className="px-4 py-2.5">₱{Number(inv.total).toLocaleString()}</td>
                   <td className="px-4 py-2.5 text-green-600">₱{Number(inv.paid).toLocaleString()}</td>
                   <td className="px-4 py-2.5">
@@ -303,12 +305,7 @@ setInvoices(data ?? [])
                   <span>₱{Number(detailModal.subtotal).toLocaleString()}</span>
                 </div>
               )}
-              {detailModal.bookings?.cottages && (
-                <div className="flex justify-between text-gray-600">
-                  <span>{detailModal.bookings.cottages.name}</span>
-                  <span></span>
-                </div>
-              )}
+             
               {detailAddons.map((a: any) => (
                 <div key={a.id} className="flex justify-between text-gray-600">
                   <span>{a.name}{a.quantity > 1 ? ` × ${a.quantity}` : ''}</span>
