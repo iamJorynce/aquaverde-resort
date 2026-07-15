@@ -104,21 +104,15 @@ export default function RemittancePage() {
   }
 
   async function loadShiftTxns(start: string, end: string) {
-    const [{ data: txns }, { data: dayUseTxns }] = await Promise.all([
-      supabase.from('transactions').select('amount, payment_method, txn_type, description, created_at')
-        .gte('created_at', start).lte('created_at', end).eq('voided', false).order('created_at'),
-      supabase.from('day_use_entries').select('total_amount, payment_method, entry_number, created_at')
-        .gte('created_at', start).lte('created_at', end).order('created_at'),
-    ])
+  const { data: txns } = await supabase
+    .from('transactions')
+    .select('amount, payment_method, txn_type, description, created_at')
+    .gte('created_at', start).lte('created_at', end)
+    .eq('voided', false)
+    .order('created_at')
 
-    const normalizedDayUse = (dayUseTxns ?? []).map((d: any) => ({
-      amount: d.total_amount, payment_method: d.payment_method ?? 'cash',
-      txn_type: 'day_use', description: `Day Use ${d.entry_number}`, created_at: d.created_at,
-    }))
-
-    setShiftTxns([...(txns ?? []), ...normalizedDayUse]
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()))
-  }
+  setShiftTxns(txns ?? [])
+}
 
   async function loadHistory() {
     if (!profile) return
@@ -157,22 +151,19 @@ export default function RemittancePage() {
 
   // ---- Close shift ----
   async function closeShift() {
-    if (!activeShift) return
-    setLoading(true)
+  if (!activeShift) return
+  setLoading(true)
 
-    const closedAt = new Date().toISOString()
-    await supabase.from('shifts').update({ status: 'closed', closed_at: closedAt }).eq('id', activeShift.id)
+  const closedAt = new Date().toISOString()
+  await supabase.from('shifts').update({ status: 'closed', closed_at: closedAt }).eq('id', activeShift.id)
 
-    // Compute collections
-    const allTxns = [
-      ...shiftTxns.map((t: any) => ({ amount: t.amount, payment_method: t.payment_method ?? 'other' })),
-    ]
-    const gross = allTxns.reduce((s, t) => s + Number(t.amount), 0)
-    const byMethod = allTxns.reduce((acc: any, t) => {
-      const m = t.payment_method ?? 'other'
-      acc[m] = (acc[m] ?? 0) + Number(t.amount)
-      return acc
-    }, {})
+  // Just use shiftTxns state — already correctly loaded from transactions table only
+  const gross = shiftTxns.reduce((s, t) => s + Number(t.amount), 0)
+  const byMethod = shiftTxns.reduce((acc: any, t) => {
+    const m = t.payment_method ?? 'other'
+    acc[m] = (acc[m] ?? 0) + Number(t.amount)
+    return acc
+  }, {})
 
     const remittanceNumber = `REM-${Date.now().toString().slice(-8)}`
     const { error } = await supabase.from('remittances').insert({

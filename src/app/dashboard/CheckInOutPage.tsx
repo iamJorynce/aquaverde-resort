@@ -9,6 +9,11 @@ import { createOrUpdateInvoice } from './invoiceUtils'
 
 export default function CheckInOutPage() {
   const supabase = createClient()
+  const [damagePaymentModal, setDamagePaymentModal] = useState<{ 
+  finalBooking: any; damageTotal: number; allCottageIds: string[] 
+} | null>(null)
+const [damagePaymentMethod, setDamagePaymentMethod] = useState('cash')
+const [damagePaymentAmount, setDamagePaymentAmount] = useState(0)
   const [tab, setTab] = useState<'in' | 'active' | 'out' | 'dayuse'>('in')
   const [pendingCheckins, setPendingCheckins]   = useState<any[]>([])
   const [activeStays, setActiveStays]           = useState<any[]>([])
@@ -153,8 +158,20 @@ export default function CheckInOutPage() {
         damage_charge: cond?.charge ?? 0,
       }).eq('id', rental.id)
 
-      const { data: eq } = await supabase.from('equipment').select('available_qty').eq('id', rental.equipment_id).single()
-      if (eq) await supabase.from('equipment').update({ available_qty: eq.available_qty + rental.quantity }).eq('id', rental.equipment_id)
+      const { data: eq } = await supabase.from('equipment').select('available_qty, under_repair_qty').eq('id', rental.equipment_id).single()
+if (eq) {
+  if (cond?.condition === 'damaged') {
+    // Damaged items go to under_repair_qty, NOT back into available pool
+    await supabase.from('equipment').update({
+      under_repair_qty: (eq.under_repair_qty ?? 0) + rental.quantity,
+    }).eq('id', rental.equipment_id)
+  } else {
+    // Good condition — back to available pool as normal
+    await supabase.from('equipment').update({
+      available_qty: eq.available_qty + rental.quantity,
+    }).eq('id', rental.equipment_id)
+  }
+}
 
       if (cond?.condition === 'damaged' && cond.charge > 0) {
         await supabase.from('booking_addons').insert({
@@ -183,56 +200,40 @@ export default function CheckInOutPage() {
     setPendingCheckoutBooking(null)
 
     // Day use: go straight to checked_out after equipment return
-   if (finalBooking.accommodation_type === 'day_use') {
-  await supabase.from('bookings').update({
-    status: 'checked_out',
-    actual_check_out: returnedAt,
-  }).eq('id', finalBooking.id)
-
-  // Handle cottage cleanup (same logic as checkOutDayUse)
+   // Day use: check if there's damage to collect payment for
+if (finalBooking.accommodation_type === 'day_use') {
   const allCottageIds = finalBooking.cottage_ids?.length
     ? finalBooking.cottage_ids
     : (finalBooking.cottage_id ? [finalBooking.cottage_id] : [])
 
-  for (const cottageId of allCottageIds) {
-    await supabase.from('cottages').update({ status: 'cleaning' }).eq('id', cottageId)
+  const damageTotal = Object.values(equipmentConditions)
+    .reduce((s, c) => s + (c.charge ?? 0), 0)
 
-    const { data: existingTask } = await supabase
-      .from('housekeeping_tasks')
-      .select('id')
-      .eq('cottage_id', cottageId)
-      .in('status', ['pending', 'in_progress'])
-      .maybeSingle()
-
-    if (!existingTask) {
-      await supabase.from('housekeeping_tasks').insert({
-        task_number: `HK-${Date.now()}-${cottageId.slice(0, 4)}`,
-        cottage_id: cottageId,
-        task_type: 'checkout_cleaning',
-        priority: 'high',
-        status: 'pending',
-        notes: `Day use checkout — ${finalBooking.booking_number}`,
-      })
-    }
-  }
-
-  // Damage charges (existing code)
-  const damageTotal = Object.values(equipmentConditions).reduce((s, c) => s + (c.charge ?? 0), 0)
   if (damageTotal > 0) {
-    await supabase.from('transactions').insert({
-      txn_number: `TXN-${Date.now()}`,
-      booking_id: finalBooking.id,
-      txn_type: 'room',
-      description: `Damage charges — ${finalBooking.booking_number}`,
-      amount: damageTotal,
-      payment_method: 'cash',
+    // Show payment modal BEFORE finalizing checkout
+    setDamagePaymentModal({
+      finalBooking,
+      damageTotal,
+      allCottageIds,
     })
+
+    setDamagePaymentAmount(damageTotal)
+    setDamagePaymentMethod('cash')
+    return
   }
 
-  showToast(`Equipment returned.${damageTotal > 0 ? ` Damage charge: ₱${damageTotal.toLocaleString()}` : ' All items in good condition.'}${allCottageIds.length > 0 ? ` ${allCottageIds.length} cottage(s) set to cleaning.` : ''}`)
-  load()
+  // No damage — proceed straight to checkout
+  await finalizeDayUseCheckout(
+    finalBooking,
+    allCottageIds,
+    0,
+    null
+  )
+
   return
 }
+
+ 
 
     // Overnight: proceed to payment modal
     const { data: updatedAddons } = await supabase.from('booking_addons').select('*').eq('booking_id', finalBooking.id).order('created_at')
@@ -240,7 +241,55 @@ export default function CheckInOutPage() {
     setCheckoutAmount(Math.max(0, finalBooking.total_amount - finalBooking.amount_paid))
     setCheckoutMethod('cash')
   }
+async function finalizeDayUseCheckout(
+  finalBooking: any, 
+  allCottageIds: string[], 
+  damageAmount: number, 
+  paymentMethod: string | null
+) {
+  await supabase.from('bookings').update({
+    status: 'checked_out',
+    actual_check_out: new Date().toISOString(),
+  }).eq('id', finalBooking.id)
 
+  // Cottage cleanup
+  for (const cottageId of allCottageIds) {
+    await supabase.from('cottages').update({ status: 'cleaning' }).eq('id', cottageId)
+    const { data: existingTask } = await supabase
+      .from('housekeeping_tasks').select('id')
+      .eq('cottage_id', cottageId).in('status', ['pending', 'in_progress']).maybeSingle()
+    if (!existingTask) {
+      await supabase.from('housekeeping_tasks').insert({
+        task_number: `HK-${Date.now()}-${cottageId.slice(0, 4)}`,
+        cottage_id: cottageId, task_type: 'checkout_cleaning',
+        priority: 'high', status: 'pending',
+        notes: `Day use checkout — ${finalBooking.booking_number}`,
+      })
+    }
+  }
+
+  // Record damage payment if applicable
+  if (damageAmount > 0 && paymentMethod) {
+    await supabase.from('transactions').insert({
+      txn_number: `TXN-${Date.now()}`,
+      booking_id: finalBooking.id,
+      txn_type: 'room',
+      description: `Damage charge payment — ${finalBooking.booking_number}`,
+      amount: damageAmount,
+      payment_method: paymentMethod,
+    })
+  }
+
+  showToast(`Equipment returned.${damageAmount > 0 ? ` ₱${damageAmount.toLocaleString()} damage payment collected.` : ' All items in good condition.'}${allCottageIds.length > 0 ? ` ${allCottageIds.length} cottage(s) set to cleaning.` : ''}`)
+  load()
+}
+
+async function confirmDamagePayment() {
+  if (!damagePaymentModal) return
+  const { finalBooking, damageTotal, allCottageIds } = damagePaymentModal
+  await finalizeDayUseCheckout(finalBooking, allCottageIds, damageTotal, damagePaymentMethod)
+  setDamagePaymentModal(null)
+}
   // ---- Confirm checkout (overnight) ----
   async function confirmCheckout() {
     if (!checkoutModal) return
@@ -864,6 +913,48 @@ for (const cottageId of allCottageIds) {
                 className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">Cancel</button>
             </div>
           </div>
+
+
+
+{/* ===== Damage Payment Modal UI ===== */}
+{damagePaymentModal && (
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-xl p-5 w-full max-w-sm">
+      <div className="text-sm font-semibold text-gray-800 mb-1">Collect Damage Payment</div>
+      <div className="text-xs text-gray-400 mb-4">
+        {damagePaymentModal.finalBooking.booking_number}
+      </div>
+
+      <div className="bg-red-50 rounded-lg p-3 text-sm font-medium text-red-700 flex justify-between mb-4">
+        <span>Damage Charge Total</span>
+        <span>₱{damagePaymentModal.damageTotal.toLocaleString()}</span>
+      </div>
+
+      <PaymentCalculator
+        totalDue={damagePaymentModal.damageTotal}
+        method={damagePaymentMethod}
+        onMethodChange={setDamagePaymentMethod}
+        amountTendered={damagePaymentAmount}
+        onAmountTenderedChange={setDamagePaymentAmount}
+      />
+
+      <button
+        onClick={confirmDamagePayment}
+        disabled={!isPaymentValid(damagePaymentMethod, damagePaymentModal.damageTotal, damagePaymentAmount)}
+        className="w-full mt-3 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-sm font-medium rounded-lg"
+      >
+        Collect Payment & Complete Check-out
+      </button>
+    </div>
+  </div>
+)}
+
+
+
+
+
+
+
         </div>
       )}
     </div>

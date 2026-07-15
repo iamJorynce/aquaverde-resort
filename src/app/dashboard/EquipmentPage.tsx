@@ -7,6 +7,15 @@ import PaymentCalculator, { isPaymentValid } from './PaymentCalculator'
 import { logActivity } from './activityLog'
 
 export default function EquipmentPage() {
+
+  const [showDamageLog, setShowDamageLog] = useState(false)
+  
+const [damageLog, setDamageLog] = useState<any[]>([])
+
+async function loadDamageLog() {
+  const { data } = await supabase.from('damage_log').select('*')
+  setDamageLog(data ?? [])
+} 
   const supabase = createClient()
   const { role, can } = usePermissions()
   const [equipment, setEquipment] = useState<any[]>([])
@@ -178,6 +187,47 @@ export default function EquipmentPage() {
     load()
   }
 
+   async function markAsRepaired(item: any) {
+  const qty = prompt(`How many units of "${item.name}" are now repaired and ready to use? (Max: ${item.under_repair_qty})`)
+  const repairedQty = parseInt(qty || '0')
+  if (!repairedQty || repairedQty <= 0 || repairedQty > item.under_repair_qty) {
+    showToast('Invalid quantity.')
+    return
+  }
+  await supabase.from('equipment').update({
+    under_repair_qty: item.under_repair_qty - repairedQty,
+    available_qty: item.available_qty + repairedQty,
+  }).eq('id', item.id)
+  await logActivity(supabase, {
+    action: 'EQUIPMENT_REPAIRED',
+    details: `${item.name} × ${repairedQty} repaired and returned to available pool`,
+  })
+  showToast(`${repairedQty} unit(s) of ${item.name} marked as repaired.`)
+  load()
+}
+
+async function markAsUnrepairable(item: any) {
+  const qty = prompt(`How many units of "${item.name}" are unrepairable and will be permanently removed? (Max: ${item.under_repair_qty})`)
+  const writeOffQty = parseInt(qty || '0')
+  if (!writeOffQty || writeOffQty <= 0 || writeOffQty > item.under_repair_qty) {
+    showToast('Invalid quantity.')
+    return
+  }
+  if (!confirm(`Permanently remove ${writeOffQty} unit(s) of "${item.name}" from inventory? This cannot be undone.`)) return
+
+  await supabase.from('equipment').update({
+    under_repair_qty: item.under_repair_qty - writeOffQty,
+    written_off_qty: (item.written_off_qty ?? 0) + writeOffQty,
+    total_quantity: item.total_quantity - writeOffQty,  // permanently reduce total count
+  }).eq('id', item.id)
+  await logActivity(supabase, {
+    action: 'EQUIPMENT_WRITTEN_OFF',
+    details: `${item.name} × ${writeOffQty} written off as unrepairable`,
+  })
+  showToast(`${writeOffQty} unit(s) of ${item.name} written off.`)
+  load()
+}
+
   const canManageEquipment = can('canManageEquipmentCatalog')
 
   return (
@@ -190,12 +240,59 @@ export default function EquipmentPage() {
 
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm font-medium text-gray-700">{equipment.length} Equipment Types</div>
+
+
+
+       
         {canManageEquipment && (
-          <button onClick={openNew} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
-            + Add Equipment
-          </button>
+          <div className="flex gap-2">
+            <button onClick={openNew} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
+              + Add Equipment
+            </button>
+
+            <button onClick={() => { setShowDamageLog(!showDamageLog); if (!showDamageLog) loadDamageLog() }}
+      className="px-3 py-1.5 border border-amber-200 text-amber-700 hover:bg-amber-50 text-xs rounded-lg">
+      🔧 Damage Log
+    </button>
+          </div>
         )}
       </div>
+{showDamageLog && (
+  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden mb-4">
+    <div className="px-4 py-3 border-b border-gray-100 text-sm font-medium text-gray-700">
+      Damage Reports ({damageLog.length})
+    </div>
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+          <th className="text-left px-4 py-2.5">Equipment</th>
+          <th className="text-left px-4 py-2.5">Guest</th>
+          <th className="text-left px-4 py-2.5">Booking</th>
+          <th className="text-left px-4 py-2.5">Damage Description</th>
+          <th className="text-right px-4 py-2.5">Charge</th>
+          <th className="text-left px-4 py-2.5">Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {damageLog.length === 0 ? (
+          <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">No damage reports.</td></tr>
+        ) : damageLog.map((d: any) => (
+          <tr key={d.id} className="border-b border-gray-50 hover:bg-gray-50">
+            <td className="px-4 py-2.5 font-medium text-gray-700">{d.equipment_name} × {d.quantity}</td>
+            <td className="px-4 py-2.5">{d.guest_name ?? '—'}</td>
+            <td className="px-4 py-2.5 text-blue-700">{d.booking_number ?? '—'}</td>
+            <td className="px-4 py-2.5 text-gray-500">{d.condition_notes ?? '—'}</td>
+            <td className="px-4 py-2.5 text-right font-medium text-red-600">₱{Number(d.damage_charge).toLocaleString()}</td>
+            <td className="px-4 py-2.5 text-xs text-gray-400">
+              {d.returned_at ? new Date(d.returned_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}
+
 
       {loading ? (
         <div className="text-center py-12 text-gray-400 text-sm">Loading...</div>
@@ -208,22 +305,29 @@ export default function EquipmentPage() {
                 <th className="text-left px-4 py-2.5">Total</th>
                 <th className="text-left px-4 py-2.5">Rented</th>
                 <th className="text-left px-4 py-2.5">Available</th>
+                <th className="text-left px-4 py-2.5">Written Off</th>
                 <th className="text-left px-4 py-2.5">Rate</th>
                 <th className="text-left px-4 py-2.5">Action</th>
               </tr>
             </thead>
             <tbody>
               {equipment.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">No equipment found.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">No equipment found.</td></tr>
               ) : equipment.map(e => (
                 <tr key={e.id} className="border-b border-gray-50 hover:bg-gray-50">
                   <td className="px-4 py-2.5 font-medium text-gray-700">{e.name}</td>
                   <td className="px-4 py-2.5">{e.total_quantity}</td>
                   <td className="px-4 py-2.5">{e.total_quantity - e.available_qty}</td>
                   <td className="px-4 py-2.5">{e.available_qty}</td>
+                  
+                  
+                  <td className="px-4 py-2.5 text-xs text-gray-400">
+                    {e.written_off_qty > 0 ? `${e.written_off_qty} written off` : '—'}
+                  </td>
                   <td className="px-4 py-2.5 text-gray-500">
                     {e.hourly_rate ? `₱${e.hourly_rate}/hr` : `₱${e.daily_rate}/day`}
                   </td>
+
                   <td className="px-4 py-2.5 flex gap-1">
                     <button
                       onClick={() => openRent(e)}
@@ -240,12 +344,32 @@ export default function EquipmentPage() {
                       Return
                     </button>
                     {canManageEquipment && (
-                      <>
+                       <>
+                       
+                       <button onClick={() => markAsRepaired(e)}
+      className="px-2.5 py-1 bg-green-100 hover:bg-green-200 text-green-700 text-xs rounded-lg">
+      ✓ Repaired ({e.under_repair_qty})
+    </button>
+    <button onClick={() => markAsUnrepairable(e)}
+      className="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-700 text-xs rounded-lg">
+      ✗ Write Off
+    </button>
+              
+              
+               
+
+
+                    
+
                         <button onClick={() => openEdit(e)} className="px-2 py-1 text-gray-400 hover:text-gray-600 text-xs">Edit</button>
                         <button onClick={() => deactivate(e)} className="px-2 py-1 text-red-400 hover:text-red-600 text-xs">Remove</button>
+                         
+
                       </>
+                      
                     )}
                   </td>
+                  
                 </tr>
               ))}
             </tbody>
@@ -348,7 +472,9 @@ export default function EquipmentPage() {
       )}
 
       {/* Admin: Add/Edit Equipment Type */}
+      
       {showForm && (
+        
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowForm(false)}>
           <form onSubmit={saveEquipment} className="bg-white rounded-xl p-5 w-full max-w-sm space-y-3" onClick={ev => ev.stopPropagation()}>
             <div className="text-sm font-medium text-gray-700 mb-1">{editing ? 'Edit Equipment' : 'Add Equipment'}</div>
@@ -358,6 +484,7 @@ export default function EquipmentPage() {
                 placeholder="e.g. Kayak"
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
             </div>
+             
             <div>
               <label className="block text-xs text-gray-500 mb-1">Total Quantity</label>
               <input type="number" value={form.total_quantity} onChange={ev => setForm(p => ({ ...p, total_quantity: parseInt(ev.target.value) || 1 }))}
@@ -388,8 +515,10 @@ export default function EquipmentPage() {
                 Cancel
               </button>
             </div>
+            
           </form>
         </div>
+        
       )}
     </div>
   )
