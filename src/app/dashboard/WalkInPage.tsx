@@ -74,7 +74,7 @@ export default function WalkInPage() {
     const { data: overlappingBookings } = await supabase
       .from('bookings')
       .select('room_id')
-      .in('status', ['reserved', 'checked_in', 'confirmed', 'pending'])
+      .in('status', ['confirmed', 'checked_in', 'pending'])
       .not('room_id', 'is', null)
       .lt('check_in_date', form.check_out_date)
       .gt('check_out_date', form.check_in_date)
@@ -189,7 +189,7 @@ export default function WalkInPage() {
     const { data: freshOverlaps } = await supabase
       .from('bookings')
       .select('room_id')
-      .in('status', ['reserved', 'checked_in', 'confirmed', 'pending'])
+      .in('status', ['confirmed', 'checked_in', 'pending'])
       .in('room_id', form.room_ids)
       .lt('check_in_date', form.check_out_date)
       .gt('check_out_date', form.check_in_date)
@@ -245,7 +245,7 @@ export default function WalkInPage() {
           total_amount: isPrimary ? (rl.amount + cottageFee + equipmentFee) : rl.amount,
           amount_paid: 0,  // set after we know the split, below
           payment_status: 'unpaid',
-          status: bookingType === 'advance' ? 'reserved' : 'checked_in',
+          status: bookingType === 'advance' ? 'confirmed' : 'checked_in',
           wristband_number: wristband,
           special_requests: [
             form.special_requests || null,

@@ -14,12 +14,14 @@ interface ReceiptData {
   guestName: string
   guestContact?: string
   lineItems: ReceiptLineItem[]
+  checkindate: string
+  checkoutdate: string
   discount?: number
   total: number
   amountPaid?: number
   balance?: number
   paymentMethod?: string
-  footerNote?: string
+  
 }
 
 // Renders nothing visible inline — call printReceipt(data) to open a
@@ -71,7 +73,7 @@ export function printReceipt(data: ReceiptData) {
 <body>
   <div class="center">
     <div class="title">${data.title}</div>
-    <div class="subtitle">Sarangani, South Cotabato, PH</div>
+    <div class="subtitle">Pindasan, Mabini, Davao de Oro, PH</div>
   </div>
 
   <div class="divider"></div>
@@ -79,10 +81,12 @@ export function printReceipt(data: ReceiptData) {
   <div class="row"><span>${data.receiptType}</span><span>${data.receiptNumber}</span></div>
   <div class="row"><span>Date</span><span>${data.date}</span></div>
   <div class="row"><span>Guest</span><span>${data.guestName}</span></div>
+
   ${data.guestContact ? `<div class="row"><span>Contact</span><span>${data.guestContact}</span></div>` : ''}
 
   <div class="divider"></div>
-
+  <div class="row"><span>Check-in Date</span><span>${data.checkindate}</span></div>
+  <div class="row"><span>Check-out Date</span><span>${data.checkoutdate}</span></div>
   <table>
     <tbody>
       ${lineItemsHtml}
@@ -99,7 +103,7 @@ export function printReceipt(data: ReceiptData) {
 
   <div class="footer">
     ${data.footerNote ?? 'Thank you for staying with us!'}<br>
-    This serves as your official receipt.
+    Thank you for your payment.
   </div>
 
   <script>

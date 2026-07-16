@@ -166,19 +166,21 @@ setInvoices(data ?? [])
         ]
 
   printReceipt({
-    title: 'AquaVerde Beach Resort',
+    title: 'Sea Eagle Beach Resort',
     receiptNumber: inv.invoice_number,
     receiptType: isAccommodation ? 'Official Receipt' : 'Day Use Receipt',
     date: new Date(inv.created_at).toLocaleDateString('en-PH', { dateStyle: 'medium' }),
     guestName: inv.guests?.full_name ?? 'Guest',
     guestContact: inv.guests?.phone ?? undefined,
+    checkindate: new Date(inv.bookings?.check_in_date).toLocaleDateString('en-PH', { dateStyle: 'medium' }) ?? 'Check in date',
+    checkoutdate: new Date(inv.bookings?.check_out_date).toLocaleDateString('en-PH', { dateStyle: 'medium' }) ?? 'Check out date',
     lineItems,
     total: Number(inv.total),
     amountPaid: Number(inv.paid),
     balance: Number(inv.balance),
     paymentMethod: 'cash',
-    footerNote: `Invoice: ${inv.invoice_number} · Reprinted: ${new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' })}`,
-  })
+    footerNote: `Invoice: ${inv.invoice_number} · Reprinted: ${new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' })}` ,
+  } as any)
 }
 
 

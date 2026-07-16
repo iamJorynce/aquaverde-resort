@@ -47,7 +47,7 @@ const [damagePaymentAmount, setDamagePaymentAmount] = useState(0)
       // Pending check-ins (reserved/confirmed, due today or earlier)
       supabase.from('bookings')
         .select('*, guests(full_name, phone), rooms(room_number), cottages(name, cottage_code)')
-        .in('status', ['pending', 'confirmed', 'reserved'])
+        .in('status', ['pending', 'confirmed'])
         .lte('check_in_date', today)
         .not('accommodation_type', 'eq', 'day_use'),
 
