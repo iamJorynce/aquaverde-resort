@@ -21,6 +21,10 @@ const [damagePaymentAmount, setDamagePaymentAmount] = useState(0)
   const [activeDayUse, setActiveDayUse]         = useState<any[]>([])
   const [loading, setLoading]                   = useState(true)
   const [toast, setToast]                       = useState('')
+  const [checkinPaymentModal, setCheckinPaymentModal] = useState<any>(null)
+const [checkinAmount, setCheckinAmount] = useState(0)
+const [checkinMethod, setCheckinMethod] = useState('cash')
+const [processingCheckin, setProcessingCheckin] = useState(false)
 
   // Bill detail modal (view-only)
   const [billDetail, setBillDetail]   = useState<{ booking: any; addons: any[] } | null>(null)
@@ -99,18 +103,59 @@ const [damagePaymentAmount, setDamagePaymentAmount] = useState(0)
 
   // ---- Check-in ----
   async function handleCheckIn(booking: any) {
-    const wristband = `WB-${Date.now().toString().slice(-6)}`
-    const { error } = await supabase.from('bookings').update({
-      status: 'checked_in',
-      actual_check_in: new Date().toISOString(),
-      wristband_number: wristband,
-    }).eq('id', booking.id)
-    if (error) { showToast('Error: ' + error.message); return }
-    if (booking.room_id) await supabase.from('rooms').update({ status: 'occupied' }).eq('id', booking.room_id)
-    if (booking.cottage_id) await supabase.from('cottages').update({ status: 'occupied' }).eq('id', booking.cottage_id)
-    showToast(`${(booking.guests as any)?.full_name} checked in! Wristband: ${wristband}`)
-    load()
+  const balance = Math.max(0, Number(booking.total_amount) - Number(booking.amount_paid))
+
+  if (balance > 0) {
+    // Payment is incomplete — collect the balance before check-in completes
+    setCheckinPaymentModal(booking)
+    setCheckinAmount(balance)
+    setCheckinMethod('cash')
+    return
   }
+
+  await finalizeCheckIn(booking, 0, null)
+}
+
+async function finalizeCheckIn(booking: any, paidNow: number, method: string | null) {
+  setProcessingCheckin(true)
+  const wristband = `WB-${Date.now().toString().slice(-6)}`
+  const newAmountPaid = Number(booking.amount_paid) + paidNow
+
+  const { error } = await supabase.from('bookings').update({
+    status: 'checked_in',
+    actual_check_in: new Date().toISOString(),
+    wristband_number: wristband,
+    amount_paid: newAmountPaid,
+    payment_status: newAmountPaid >= Number(booking.total_amount) ? 'paid' : 'partial',
+  }).eq('id', booking.id)
+
+  if (error) { showToast('Error: ' + error.message); setProcessingCheckin(false); return }
+
+  if (booking.room_id) await supabase.from('rooms').update({ status: 'occupied' }).eq('id', booking.room_id)
+  if (booking.cottage_id) await supabase.from('cottages').update({ status: 'occupied' }).eq('id', booking.cottage_id)
+
+  if (paidNow > 0 && method) {
+    await supabase.from('transactions').insert({
+      txn_number: `TXN-${Date.now()}`,
+      booking_id: booking.id,
+      guest_id: booking.guest_id,
+      txn_type: 'room',
+      description: `Balance payment at check-in — ${booking.booking_number}`,
+      amount: paidNow,
+      payment_method: method,
+    })
+  }
+
+  showToast(`${(booking.guests as any)?.full_name} checked in! Wristband: ${wristband}${paidNow > 0 ? ` · ₱${paidNow.toLocaleString()} balance collected` : ''}`)
+  setCheckinPaymentModal(null)
+  setProcessingCheckin(false)
+  load()
+}
+
+async function confirmCheckInPayment() {
+  if (!checkinPaymentModal) return
+  await finalizeCheckIn(checkinPaymentModal, checkinAmount, checkinMethod)
+}
 
   // ---- View bill ----
   async function viewBill(booking: any) {
@@ -955,6 +1000,57 @@ for (const cottageId of allCottageIds) {
       >
         Collect Payment & Complete Check-out
       </button>
+      {checkinPaymentModal && (
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-xl p-5 w-full max-w-sm">
+      <div className="text-sm font-semibold text-gray-800 mb-1">Balance Payment Required</div>
+      <div className="text-xs text-gray-400 mb-4">
+        {checkinPaymentModal.booking_number} · {(checkinPaymentModal.guests as any)?.full_name}
+      </div>
+
+      <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1 mb-4">
+        <div className="flex justify-between text-gray-500">
+          <span>Total Bill</span><span>₱{Number(checkinPaymentModal.total_amount).toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between text-green-600">
+          <span>Already Paid (deposit)</span><span>₱{Number(checkinPaymentModal.amount_paid).toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between font-semibold text-red-600 border-t border-gray-200 pt-1">
+          <span>Balance Due</span><span>₱{checkinAmount.toLocaleString()}</span>
+        </div>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-100 rounded-lg p-2.5 text-xs text-amber-700 mb-4">
+        This booking has an unpaid balance. Please collect payment before proceeding with check-in.
+      </div>
+
+      <PaymentCalculator
+        totalDue={checkinAmount}
+        method={checkinMethod}
+        onMethodChange={setCheckinMethod}
+        amountTendered={checkinAmount}
+        onAmountTenderedChange={setCheckinAmount}
+      />
+
+      <div className="flex gap-2 mt-4">
+        <button
+          onClick={confirmCheckInPayment}
+          disabled={processingCheckin || !isPaymentValid(checkinMethod, Number(checkinPaymentModal.total_amount) - Number(checkinPaymentModal.amount_paid), checkinAmount)}
+          className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg"
+        >
+          {processingCheckin ? 'Processing...' : 'Collect Payment & Check In'}
+        </button>
+        <button
+          onClick={() => setCheckinPaymentModal(null)}
+          disabled={processingCheckin}
+          className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   </div>
 )}

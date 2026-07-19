@@ -24,7 +24,10 @@ export default function BookingPage() {
   const [checkingAvail, setCheckingAvail] = useState(false)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
-  const [step, setStep]         = useState<1 | 2 | 3>(1)
+  const [step, setStep]         = useState<1 | 2 | 3 | 4>(1)
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [proofPreview, setProofPreview] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   const today    = new Date().toISOString().slice(0, 10)
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
@@ -36,6 +39,8 @@ export default function BookingPage() {
     num_children: 0,
     room_ids: [] as string[],
     full_name: '', email: '', phone: '', special_requests: '',
+    payment_method: 'gcash' as 'gcash' | 'bank_transfer',
+    payment_reference: '',
   })
 
   const totalPax = form.num_adults + form.num_children
@@ -117,14 +122,14 @@ export default function BookingPage() {
   async function submitBooking() {
     if (!form.full_name) { setError('Please enter your full name.'); return }
     if (!form.email && !form.phone) { setError('Please provide an email or phone number.'); return }
+    if (!proofFile) { setError('Please upload your proof of payment.'); return }
+    if (!form.payment_reference) { setError('Please enter your payment reference number.'); return }
 
     setLoading(true)
     setError('')
 
     try {
-      // Re-verify availability right before submitting (closes most of the
-      // race-condition window; the DB exclusion constraint is the ultimate
-      // guarantee against simultaneous conflicting submissions).
+      // Re-verify availability right before submitting
       const { data: freshOverlaps } = await supabase
         .from('bookings')
         .select('room_id')
@@ -139,6 +144,20 @@ export default function BookingPage() {
         checkRoomAvailability()
         return
       }
+
+      // Upload proof of payment to storage
+      setUploading(true)
+      const fileExt = proofFile.name.split('.').pop()
+      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`
+      const { error: uploadError } = await supabase.storage
+        .from('payment-proofs')
+        .upload(fileName, proofFile)
+
+      if (uploadError) throw new Error('Failed to upload payment proof: ' + uploadError.message)
+
+      const { data: urlData } = supabase.storage.from('payment-proofs').getPublicUrl(fileName)
+      const proofUrl = urlData.publicUrl
+      setUploading(false)
 
       const guestCode = `G-${Date.now().toString().slice(-6)}`
       const { data: guest, error: guestError } = await supabase
@@ -161,9 +180,6 @@ export default function BookingPage() {
             room_id: rl.id,
             booking_type: 'online',
             accommodation_type: 'room',
-            // Only the primary room carries the real guest count — see
-            // note in WalkInPage.tsx for why (prevents double-counted
-            // headcount when a group books multiple rooms at once).
             num_adults: isPrimary ? form.num_adults : 0,
             num_children: isPrimary ? form.num_children : 0,
             group_number: roomLines.length > 1 ? groupNumber : null,
@@ -172,9 +188,13 @@ export default function BookingPage() {
             check_out_date: form.check_out_date,
             subtotal: rl.amount,
             total_amount: isPrimary ? subtotal : rl.amount,
-            amount_paid: 0,
+            amount_paid: 0,  // not credited until admin verifies the proof
             payment_status: 'unpaid',
-            status: 'pending',  // admin must approve
+            status: 'pending',  // admin verifies proof, then confirms
+            payment_proof_url: isPrimary ? proofUrl : null,
+            payment_reference: isPrimary ? form.payment_reference : null,
+            payment_method_used: isPrimary ? form.payment_method : null,
+            payment_submitted_at: isPrimary ? new Date().toISOString() : null,
             special_requests: [
               form.special_requests || null,
               roomLines.length > 1 ? `Group booking: ${groupNumber} (${roomLines.length} rooms, ${totalPax} total guests)` : null,
@@ -194,6 +214,7 @@ export default function BookingPage() {
         ? 'One of your selected rooms was just booked by someone else. Please go back and reselect.'
         : (err.message || 'Something went wrong. Please try again.'))
       setLoading(false)
+      setUploading(false)
     }
   }
 
@@ -214,14 +235,15 @@ export default function BookingPage() {
             {[
               { n: 1, label: 'Rooms & Dates' },
               { n: 2, label: 'Your Details' },
-              { n: 3, label: 'Review & Confirm' },
+              { n: 3, label: 'Review' },
+              { n: 4, label: 'Pay Deposit' },
             ].map((s, i) => (
               <div key={s.n} className="flex items-center gap-2 flex-1">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${
                   step >= s.n ? 'bg-blue-700 text-white' : 'bg-gray-200 text-gray-500'
                 }`}>{s.n}</div>
                 <span className={`text-xs hidden sm:block ${step >= s.n ? 'text-blue-700 font-medium' : 'text-gray-400'}`}>{s.label}</span>
-                {i < 2 && <div className={`flex-1 h-0.5 ${step > s.n ? 'bg-blue-700' : 'bg-gray-200'}`} />}
+                {i < 3 && <div className={`flex-1 h-0.5 ${step > s.n ? 'bg-blue-700' : 'bg-gray-200'}`} />}
               </div>
             ))}
           </div>
@@ -423,14 +445,96 @@ export default function BookingPage() {
               </div>
 
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700">
-                <strong>Important:</strong> Your booking will be <strong>pending admin approval</strong>. You will be notified once confirmed. The reservation fee of ₱{reservationFee.toLocaleString()} is payable upon arrival.
+                <strong>Next step:</strong> You'll pay the ₱{reservationFee.toLocaleString()} reservation fee via GCash or bank transfer, then upload your proof of payment. Your booking is confirmed once we verify the payment.
               </div>
 
-              <button onClick={submitBooking} disabled={loading}
-                className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white py-4 rounded-xl font-semibold text-lg transition-colors">
-                {loading ? 'Submitting...' : 'Confirm Booking Request'}
+              <button onClick={() => setStep(4)}
+                className="w-full bg-blue-700 hover:bg-blue-800 text-white py-4 rounded-xl font-semibold text-lg transition-colors">
+                Continue to Payment →
               </button>
-              <p className="text-xs text-gray-400 text-center">By booking, you agree to our cancellation and booking policies.</p>
+            </div>
+          )}
+
+          {/* Step 4: Pay deposit & upload proof */}
+          {step === 4 && (
+            <div className="bg-white rounded-2xl p-6 shadow-sm space-y-5">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setStep(3)} className="text-gray-400 hover:text-gray-600 text-sm">← Back</button>
+                <h2 className="text-lg font-semibold text-gray-800">Pay Reservation Fee</h2>
+              </div>
+
+              <div className="bg-blue-50 rounded-xl p-4 text-center">
+                <div className="text-xs text-blue-500 mb-1">Amount to Pay</div>
+                <div className="text-3xl font-bold text-blue-700">₱{reservationFee.toLocaleString()}</div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button type="button" onClick={() => setForm(p => ({ ...p, payment_method: 'gcash' }))}
+                    className={`p-4 rounded-xl border-2 text-sm font-medium transition-colors ${
+                      form.payment_method === 'gcash' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'
+                    }`}>
+                    📱 GCash
+                  </button>
+                  <button type="button" onClick={() => setForm(p => ({ ...p, payment_method: 'bank_transfer' }))}
+                    className={`p-4 rounded-xl border-2 text-sm font-medium transition-colors ${
+                      form.payment_method === 'bank_transfer' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'
+                    }`}>
+                    🏦 Bank Transfer
+                  </button>
+                </div>
+              </div>
+
+              {form.payment_method === 'gcash' ? (
+                <div className="bg-gray-50 rounded-xl p-4 text-sm">
+                  <div className="font-medium text-gray-700 mb-1">Send payment to:</div>
+                  <div className="text-gray-600">GCash: <strong>0912 345 6789</strong></div>
+                  <div className="text-gray-600">Account Name: <strong>AquaVerde Beach Resort</strong></div>
+                </div>
+              ) : (
+                <div className="bg-gray-50 rounded-xl p-4 text-sm">
+                  <div className="font-medium text-gray-700 mb-1">Bank Transfer Details:</div>
+                  <div className="text-gray-600">Bank: <strong>BDO</strong></div>
+                  <div className="text-gray-600">Account Name: <strong>AquaVerde Beach Resort</strong></div>
+                  <div className="text-gray-600">Account Number: <strong>1234-5678-9012</strong></div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Reference Number *</label>
+                <input value={form.payment_reference} onChange={e => setForm(p => ({ ...p, payment_reference: e.target.value }))}
+                  placeholder="e.g. GCash reference number"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-900 bg-white" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Upload Proof of Payment *</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      setProofFile(file)
+                      setProofPreview(URL.createObjectURL(file))
+                    }
+                  }}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-900 bg-white"
+                />
+                {proofPreview && (
+                  <img src={proofPreview} alt="Payment proof preview" className="mt-3 rounded-xl max-h-64 mx-auto border border-gray-200" />
+                )}
+                <p className="text-xs text-gray-400 mt-1">Screenshot of your GCash/bank transfer confirmation.</p>
+              </div>
+
+              <button onClick={submitBooking} disabled={loading || uploading || !proofFile || !form.payment_reference}
+                className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white py-4 rounded-xl font-semibold text-lg transition-colors">
+                {uploading ? 'Uploading proof...' : loading ? 'Submitting...' : 'Submit Booking Request'}
+              </button>
+              <p className="text-xs text-gray-400 text-center">
+                We'll verify your payment and confirm your booking within 24 hours.
+              </p>
             </div>
           )}
         </div>
