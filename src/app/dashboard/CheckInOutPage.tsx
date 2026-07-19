@@ -46,7 +46,7 @@ const [damagePaymentAmount, setDamagePaymentAmount] = useState(0)
     const [{ data: checkins }, { data: active }, { data: checkouts }, { data: dayUse }] = await Promise.all([
       // Pending check-ins (reserved/confirmed, due today or earlier)
       supabase.from('bookings')
-        .select('*, guests(full_name, phone), rooms(room_number), cottages(name, cottage_code)')
+        .select('*, guests(full_name, phone), rooms(room_number, id), cottages(name, cottage_code, id), group_number, is_group_primary')
         .in('status', ['pending', 'confirmed'])
         .lte('check_in_date', today)
         .not('accommodation_type', 'eq', 'day_use'),
@@ -570,13 +570,23 @@ for (const cottageId of allCottageIds) {
                         <td className="px-4 py-2.5">{(b.guests as any)?.full_name}</td>
 
                         <td className="px-4 py-2.5">
-                          <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
-                            {(b.num_adults ?? 0) + (b.num_children ?? 0)} pax
-                          </span>
-                          <div className="text-xs text-gray-400 mt-0.5">
-                            {b.num_adults > 0 && `${b.num_adults}A`}{b.num_children > 0 && ` ${b.num_children}C`}
-                          </div>
-                        </td>
+  {b.is_group_primary === false ? (
+    <span className="text-xs text-gray-400 italic">Grouped booking</span>
+  ) : (
+    <>
+      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+        {(b.num_adults ?? 0) + (b.num_children ?? 0)} pax
+      </span>
+      <div className="text-xs text-gray-400 mt-0.5">
+        {b.num_adults > 0 && `${b.num_adults}A`}{b.num_children > 0 && ` ${b.num_children}C`}
+        {b.group_number && ' · group'}
+      </div>
+    </>
+  )}
+</td>
+
+
+
                         <td className="px-4 py-2.5 text-gray-500">
                            {b.rooms? `Room ${(b.rooms as any).room_number}`: (b.cottages as any)?.name}</td>
                         <td className="px-4 py-2.5 text-gray-500">{b.check_in_date}</td>

@@ -305,17 +305,22 @@ const equipLines   = equipmentLines.map(l => ({ label: `${l.name} × ${l.quantit
 const parkingLine  = form.with_parking ? [{ label: 'Parking', amount: 100 }] : []
 
 printReceipt({
-  title: 'AquaVerde Beach Resort',
+  title: 'Sea Eagle Beach Resort',
   receiptNumber: entryNumber,
   receiptType: 'Day Use Receipt',
   date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
   guestName: form.guest_name || 'Walk-in Guest',
   guestContact: form.guest_phone || undefined,
+  checkindate: dayUseBooking?.check_in_date
+    ? new Date(dayUseBooking.check_in_date).toLocaleDateString('en-PH', { dateStyle: 'medium' })
+    : new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
+  checkoutdate: dayUseBooking?.check_out_date
+    ? new Date(dayUseBooking.check_out_date).toLocaleDateString('en-PH', { dateStyle: 'medium' })
+    : new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
   lineItems: [...areaBreakdown, ...cottageLines, ...equipLines, ...parkingLine],
   total,
   amountPaid: total,
   paymentMethod: payment.method,
-  footerNote: `Wristbands: ${wristbands.join(', ')}`,
 })
 
 // Create invoice for billing module

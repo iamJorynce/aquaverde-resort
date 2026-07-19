@@ -137,7 +137,13 @@ export default function WalkInPage() {
   }
 
   // ---- Pricing calculation ----
+  const totalPax = form.num_adults + form.num_children
   const selectedRooms = rooms.filter(r => form.room_ids.includes(r.id))
+  const selectedRoomsCapacity = selectedRooms.reduce((s, r) => s + (r.room_types_config?.max_capacity ?? 0), 0)
+  // Rooms that individually fit totalPax alone — used only to decide which
+  // empty-state message to show (all rooms remain selectable regardless,
+  // since combining multiple smaller rooms is a valid way to fit more pax).
+  const capacityFilteredRooms = rooms.filter(r => (r.room_types_config?.max_capacity ?? 0) >= totalPax)
   const nights = Math.max(1, Math.ceil(
     (new Date(form.check_out_date).getTime() - new Date(form.check_in_date).getTime()) / 86400000
   ))
@@ -176,6 +182,10 @@ export default function WalkInPage() {
     e.preventDefault()
     if (!form.full_name)  { setError('Guest name is required.'); return }
     if (form.room_ids.length === 0) { setError('Please select at least one room.'); return }
+    if (selectedRoomsCapacity < totalPax) {
+      setError(`Selected rooms only fit ${selectedRoomsCapacity} guest(s), but ${totalPax} guest(s) were entered. Please select more rooms.`)
+      return
+    }
 
     setLoading(true)
     setError('')
@@ -234,8 +244,15 @@ export default function WalkInPage() {
           room_id: rl.id,
           booking_type: bookingType === 'advance' ? 'online' : 'walk_in',
           accommodation_type: 'room',
-          num_adults: form.num_adults,
-          num_children: form.num_children,
+          // Only the primary (first) booking in the group carries the real
+          // guest count. Other rooms in the same group get 0 — their
+          // occupants are already counted once via the primary booking.
+          // This prevents headcount sums (e.g. in Check-In/Out) from
+          // multiplying the same group's pax by the number of rooms booked.
+          num_adults: isPrimary ? form.num_adults : 0,
+          num_children: isPrimary ? form.num_children : 0,
+          group_number: roomLines.length > 1 ? groupNumber : null,
+          is_group_primary: isPrimary,
           check_in_date: form.check_in_date,
           check_out_date: form.check_out_date,
           subtotal: rl.amount,
@@ -249,7 +266,7 @@ export default function WalkInPage() {
           wristband_number: wristband,
           special_requests: [
             form.special_requests || null,
-            roomLines.length > 1 ? `Group booking: ${groupNumber} (${roomLines.length} rooms)` : null,
+            roomLines.length > 1 ? `Group booking: ${groupNumber} (${roomLines.length} rooms, ${totalPax} total guests)` : null,
           ].filter(Boolean).join(' | ') || null,
         }).select().single()
 
@@ -496,7 +513,7 @@ export default function WalkInPage() {
             </div>
           </div>
 
-          {/* Multiple room selection — mixed types allowed, filtered by date availability */}
+          {/* Multiple room selection — mixed types allowed, filtered by date availability AND capacity */}
           <div className="bg-white border border-gray-100 rounded-xl p-4">
             <div className="text-sm font-medium text-gray-700 mb-2">
               Select Room(s) <span className="text-xs text-gray-400 font-normal">— select multiple, any type</span>
@@ -508,22 +525,38 @@ export default function WalkInPage() {
                 No rooms available for {form.check_in_date} to {form.check_out_date}. Try different dates.
               </div>
             ) : (
-              <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                {rooms.map(r => (
-                  <label key={r.id} className="flex items-center justify-between gap-2 text-sm cursor-pointer hover:bg-gray-50 rounded px-1 py-1">
-                    <span className="flex items-center gap-2">
-                      <input type="checkbox" checked={form.room_ids.includes(r.id)} onChange={() => toggleRoom(r.id)} />
-                      <span className="text-gray-700">Room {r.room_number}</span>
-                      <span className="text-xs text-gray-400">— {r.room_types_config?.name}</span>
-                    </span>
-                    <span className="text-gray-400 text-xs">₱{Number(r.room_types_config?.base_rate ?? 0).toLocaleString()}/night</span>
-                  </label>
-                ))}
-              </div>
+              <>
+                {capacityFilteredRooms.length === 0 && (
+                  <div className="text-xs text-blue-600 bg-blue-50 rounded-lg p-2.5 mb-2">
+                    No single room fits {totalPax} guest(s) — select multiple rooms below to combine capacity.
+                  </div>
+                )}
+                <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                  {rooms.map(r => {
+                    const cap = r.room_types_config?.max_capacity ?? 0
+                    const tooSmallAlone = cap < totalPax && form.room_ids.length === 0
+                    return (
+                      <label key={r.id} className={`flex items-center justify-between gap-2 text-sm cursor-pointer hover:bg-gray-50 rounded px-1 py-1 ${tooSmallAlone ? 'opacity-40' : ''}`}>
+                        <span className="flex items-center gap-2">
+                          <input type="checkbox" checked={form.room_ids.includes(r.id)} onChange={() => toggleRoom(r.id)} />
+                          <span className="text-gray-700">Room {r.room_number}</span>
+                          <span className="text-xs text-gray-400">— {r.room_types_config?.name}</span>
+                          <span className="text-xs text-gray-300">(max {cap} pax)</span>
+                        </span>
+                        <span className="text-gray-400 text-xs">₱{Number(r.room_types_config?.base_rate ?? 0).toLocaleString()}/night</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </>
             )}
-            {form.room_ids.length > 1 && (
-              <div className="mt-2 text-xs text-blue-600 bg-blue-50 rounded-lg px-2 py-1.5">
-                {form.room_ids.length} rooms selected — will be booked together under one guest.
+
+            {form.room_ids.length > 0 && (
+              <div className={`mt-2 text-xs rounded-lg px-2 py-1.5 ${
+                selectedRoomsCapacity >= totalPax ? 'text-blue-600 bg-blue-50' : 'text-red-600 bg-red-50'
+              }`}>
+                {form.room_ids.length} room(s) selected — capacity {selectedRoomsCapacity} pax
+                {selectedRoomsCapacity < totalPax && ` — ⚠ short by ${totalPax - selectedRoomsCapacity} pax, please select more rooms`}
               </div>
             )}
           </div>
@@ -650,7 +683,7 @@ export default function WalkInPage() {
               onAmountTenderedChange={a => setPayment(p => ({ ...p, amountTendered: a }))}
             />
 
-            <button type="submit" disabled={loading || !isPaymentValid(payment.method, amountDueNow, payment.amountTendered)}
+            <button type="submit" disabled={loading || selectedRoomsCapacity < totalPax || !isPaymentValid(payment.method, amountDueNow, payment.amountTendered)}
               className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg">
               {loading ? 'Processing...' : bookingType === 'advance'
                 ? `Confirm Booking & Collect Reservation Fee (₱${reservationFee.toLocaleString()})`
