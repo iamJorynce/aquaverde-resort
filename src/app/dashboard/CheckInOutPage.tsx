@@ -430,7 +430,7 @@ for (const cottageId of allCottageIds) {
       amount: Number(a.total_price ?? a.unit_price * a.quantity),
     }))
 
-    printReceipt({
+    const receiptData: any = {
       title: 'AquaVerde Beach Resort',
       receiptNumber: booking.booking_number,
       receiptType: 'Check-out Receipt',
@@ -442,7 +442,8 @@ for (const cottageId of allCottageIds) {
       balance: remainingBalance,
       paymentMethod: checkoutMethod,
       footerNote: remainingBalance > 0 ? "Balance remains on this guest's account." : 'Thank you for staying with us!',
-    })
+    }
+    printReceipt(receiptData)
 
     showToast(remainingBalance > 0
       ? `${guestName} checked out with ₱${remainingBalance.toLocaleString()} balance remaining.`
@@ -1000,7 +1001,9 @@ for (const cottageId of allCottageIds) {
       >
         Collect Payment & Complete Check-out
       </button>
-      {checkinPaymentModal && (
+
+      
+  {checkinPaymentModal && (
   <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
     <div className="bg-white rounded-xl p-5 w-full max-w-sm">
       <div className="text-sm font-semibold text-gray-800 mb-1">Balance Payment Required</div>
