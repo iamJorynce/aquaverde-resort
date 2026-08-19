@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     .order('priority', { ascending: false })
     .order('created_at', { ascending: false })
 
-  if (status) query = query.eq('status', status)
+  if (status) query = query.eq('status', status as 'pending' | 'cancelled' | 'completed' | 'ongoing')
   if (profile.role === 'maintenance') query = query.eq('assigned_to', profile.id)
 
   const { data, error } = await query

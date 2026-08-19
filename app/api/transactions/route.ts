@@ -54,8 +54,8 @@ export async function POST(request: NextRequest) {
       .from('bookings').select('amount_paid, total_amount').eq('id', body.booking_id).single()
 
     if (booking) {
-      const new_paid = booking.amount_paid + body.amount
-      const new_status = new_paid >= booking.total_amount ? 'paid' :
+      const new_paid = (booking.amount_paid ?? 0) + body.amount
+      const new_status = new_paid >= (booking.total_amount ?? 0) ? 'paid' :
         new_paid > 0 ? 'partial' : 'unpaid'
       await supabase.from('bookings')
         .update({ amount_paid: new_paid, payment_status: new_status })

@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
     action: 'CREATE_BOOKING',
     table_name: 'bookings',
     record_id: booking!.id,
-    new_data: booking as unknown as Record<string, unknown>,
+    new_data: booking as any,
   })
 
   return ok(booking, 201)

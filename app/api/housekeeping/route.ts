@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     .order('priority', { ascending: false })
     .order('created_at', { ascending: false })
 
-  if (status)      query = query.eq('status', status)
+  if (status)      query = query.eq('status', status as 'pending' | 'cancelled' | 'in_progress' | 'completed')
   if (assigned_to) query = query.eq('assigned_to', assigned_to)
   else if (profile.role === 'housekeeping')
     query = query.eq('assigned_to', profile.id)
@@ -45,20 +45,22 @@ export async function POST(request: NextRequest) {
   return ok(data, 201)
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
 
   const body = await request.json()
-  const updates: Record<string, any> = { ...body }
+  const { id, ...rest } = body
+  if (!id) return err('Missing required field: id')
+  const updates: Record<string, any> = { ...rest }
 
   if (body.status === 'in_progress' && !body.started_at) updates.started_at = new Date().toISOString()
   if (body.status === 'completed' && !body.completed_at) updates.completed_at = new Date().toISOString()
 
   const { data, error } = await supabase
     .from('housekeeping_tasks')
-    .update(updates)
-    .eq('id', params.id)
+    .update(updates as any)
+    .eq('id', id)
     .select()
     .single()
 

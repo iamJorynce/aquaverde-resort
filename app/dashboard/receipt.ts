@@ -14,8 +14,8 @@ interface ReceiptData {
   guestName: string
   guestContact?: string
   lineItems: ReceiptLineItem[]
-  checkindate: string
-  checkoutdate: string
+  checkindate?: string
+  checkoutdate?: string
   discount?: number
   total: number
   amountPaid?: number
@@ -85,8 +85,8 @@ export function printReceipt(data: ReceiptData) {
   ${data.guestContact ? `<div class="row"><span>Contact</span><span>${data.guestContact}</span></div>` : ''}
 
   <div class="divider"></div>
-  <div class="row"><span>Check-in Date</span><span>${data.checkindate}</span></div>
-  <div class="row"><span>Check-out Date</span><span>${data.checkoutdate}</span></div>
+  ${data.checkindate ? `<div class="row"><span>Check-in Date</span><span>${data.checkindate}</span></div>` : ''}
+  ${data.checkoutdate ? `<div class="row"><span>Check-out Date</span><span>${data.checkoutdate}</span></div>` : ''}
   <table>
     <tbody>
       ${lineItemsHtml}

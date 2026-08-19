@@ -17,12 +17,18 @@ export async function GET(request: NextRequest) {
     .eq('is_active', true)
     .order('name')
 
-  if (low_stock) query = query.lte('current_stock', supabase.raw('reorder_level'))
   if (category_id) query = query.eq('category_id', category_id)
 
   const { data, error } = await query
   if (error) return err(error.message)
-  return ok(data)
+
+  // Column-to-column comparison isn't expressible via PostgREST filters,
+  // so low-stock filtering happens client-side after fetch.
+  const result = low_stock
+    ? (data ?? []).filter((item: any) => (item.current_stock ?? 0) <= (item.reorder_level ?? 0))
+    : data
+
+  return ok(result)
 }
 
 export async function POST(request: NextRequest) {

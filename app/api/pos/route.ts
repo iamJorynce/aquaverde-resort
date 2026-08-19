@@ -47,10 +47,12 @@ export async function POST(request: NextRequest) {
     items.map((item: any) => ({ ...item, order_id: order.id }))
   )
 
-  // If room charge, add to booking extras
+  // If room charge, add to booking extras (RPC not available — read then increment)
   if (booking_id) {
+    const { data: bookingRow } = await supabase
+      .from('bookings').select('extras_total').eq('id', booking_id).single()
     await supabase.from('bookings')
-      .update({ extras_total: supabase.rpc('add_extras', { booking_id, amount: total }) })
+      .update({ extras_total: (bookingRow?.extras_total ?? 0) + total })
       .eq('id', booking_id)
 
     await supabase.from('booking_addons').insert({
@@ -88,7 +90,7 @@ export async function GET(request: NextRequest) {
     .select('*, order_items(*, menu_items(name))')
     .order('created_at', { ascending: true })
 
-  if (status) query = query.eq('status', status)
+  if (status) query = query.eq('status', status as 'pending' | 'cancelled' | 'preparing' | 'ready' | 'served')
   else query = query.in('status', ['pending', 'preparing', 'ready'])
 
   const { data, error } = await query

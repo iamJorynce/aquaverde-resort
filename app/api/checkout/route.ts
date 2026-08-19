@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
   // Calculate final bill
   const extras = additional_charges.reduce((s: number, c: any) => s + c.amount, 0) + damage_charge
   const final_total = booking.total_amount + extras - discount_amount
-  const balance = final_total - booking.amount_paid
-  const deposit_refund = return_deposit ? booking.security_deposit : 0
+  const balance = final_total - (booking.amount_paid ?? 0)
+  const deposit_refund = return_deposit ? (booking.security_deposit ?? 0) : 0
 
   const { data, error } = await supabase
     .from('bookings')

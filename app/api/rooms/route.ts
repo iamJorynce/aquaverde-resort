@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     .select('*, room_types_config(*)')
     .order('room_number')
 
-  if (status)  query = query.eq('status', status)
+  if (status)  query = query.eq('status', status as 'maintenance' | 'available' | 'occupied' | 'reserved' | 'cleaning' | 'out_of_order')
   if (type_id) query = query.eq('room_type_id', type_id)
 
   const { data, error } = await query
@@ -22,18 +22,19 @@ export async function GET(request: NextRequest) {
   return ok(data)
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
   if (!requireRole(profile.role, ['super_admin','resort_owner','front_desk']))
     return forbidden()
 
-  const { status, notes } = await request.json()
+  const { id, status, notes } = await request.json()
+  if (!id) return err('Missing required field: id')
 
   const { data, error } = await supabase
     .from('rooms')
     .update({ status, notes, last_cleaned_at: status === 'available' ? new Date().toISOString() : undefined })
-    .eq('id', params.id)
+    .eq('id', id)
     .select()
     .single()
 
@@ -43,7 +44,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     user_id: profile.id,
     action: 'UPDATE_ROOM_STATUS',
     table_name: 'rooms',
-    record_id: params.id,
+    record_id: id,
     new_data: { status },
   })
 

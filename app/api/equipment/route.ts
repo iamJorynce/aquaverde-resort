@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       quantity, rate_type, rate_amount: rate ?? 0,
       rental_start: new Date().toISOString(),
       expected_return,
-      deposit_paid: equip.deposit_amount * quantity,
+      deposit_paid: (equip.deposit_amount ?? 0) * quantity,
       created_by: profile.id,
     })
     .select()

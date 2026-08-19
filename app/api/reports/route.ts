@@ -50,7 +50,8 @@ export async function GET(request: NextRequest) {
     bookings: {
       total: bookingStats?.length ?? 0,
       by_status: (bookingStats ?? []).reduce((acc: Record<string, number>, b) => {
-        acc[b.status] = (acc[b.status] ?? 0) + 1
+        const key = b.status ?? 'unknown'
+        acc[key] = (acc[key] ?? 0) + 1
         return acc
       }, {}),
       by_type: (bookingStats ?? []).reduce((acc: Record<string, number>, b) => {
