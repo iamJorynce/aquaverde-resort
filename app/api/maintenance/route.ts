@@ -1,4 +1,7 @@
-export async function GET_maintenance(request: NextRequest) {
+import { NextRequest } from 'next/server'
+import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
+
+export async function GET(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
 
@@ -19,7 +22,7 @@ export async function GET_maintenance(request: NextRequest) {
   return ok(data)
 }
 
-export async function POST_maintenance(request: NextRequest) {
+export async function POST(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
 

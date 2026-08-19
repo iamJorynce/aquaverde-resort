@@ -1,4 +1,7 @@
-export async function GET_rooms(request: NextRequest) {
+import { NextRequest } from 'next/server'
+import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
+
+export async function GET(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
 
@@ -19,7 +22,7 @@ export async function GET_rooms(request: NextRequest) {
   return ok(data)
 }
 
-export async function PATCH_room_status(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
   if (!requireRole(profile.role, ['super_admin','resort_owner','front_desk']))

@@ -6,6 +6,7 @@ import { printReceipt } from './receipt'
 import { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import PaymentCalculator from './PaymentCalculator'
 import { createOrUpdateInvoice } from './invoiceUtils'
+import { logActivity } from './activityLog'
 
 // A "group" is one or more room bookings that were made together (a guest
 // booking multiple rooms in one transaction). Ungrouped bookings become a
@@ -494,7 +495,6 @@ export default function CheckInOutPage() {
       date: new Date().toLocaleDateString("en-PH", { dateStyle: "medium" }),
       guestName,
       lineItems: [...roomLines, ...posLines, ...addonLines],
-      total: groupTotal(group),
       total: groupTotal(group),
       amountPaid: groupPaid(group) + checkoutAmount,
       balance: remainingGroupBalance,

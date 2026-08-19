@@ -1,4 +1,7 @@
-export async function POST_pos_order(request: NextRequest) {
+import { NextRequest } from 'next/server'
+import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
+
+export async function POST(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
   if (!requireRole(profile.role, ['super_admin','resort_owner','front_desk','cashier','restaurant']))
@@ -73,7 +76,7 @@ export async function POST_pos_order(request: NextRequest) {
 }
 
 // GET /api/pos/orders — active kitchen orders
-export async function GET_pos_orders(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
 

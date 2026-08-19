@@ -1,4 +1,7 @@
-export async function GET_housekeeping(request: NextRequest) {
+import { NextRequest } from 'next/server'
+import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
+
+export async function GET(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
 
@@ -22,7 +25,7 @@ export async function GET_housekeeping(request: NextRequest) {
   return ok(data)
 }
 
-export async function POST_housekeeping(request: NextRequest) {
+export async function POST(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
   if (!requireRole(profile.role, ['super_admin','resort_owner','front_desk','housekeeping']))
@@ -42,7 +45,7 @@ export async function POST_housekeeping(request: NextRequest) {
   return ok(data, 201)
 }
 
-export async function PATCH_housekeeping(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
 

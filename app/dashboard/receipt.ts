@@ -21,7 +21,7 @@ interface ReceiptData {
   amountPaid?: number
   balance?: number
   paymentMethod?: string
-  
+  footerNote?: string
 }
 
 // Renders nothing visible inline — call printReceipt(data) to open a

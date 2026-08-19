@@ -1,4 +1,7 @@
-export async function GET_inventory(request: NextRequest) {
+import { NextRequest } from 'next/server'
+import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
+
+export async function GET(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
   if (!requireRole(profile.role, ['super_admin','resort_owner','front_desk','cashier']))
@@ -22,7 +25,7 @@ export async function GET_inventory(request: NextRequest) {
   return ok(data)
 }
 
-export async function POST_inventory_movement(request: NextRequest) {
+export async function POST(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
   if (!requireRole(profile.role, ['super_admin','resort_owner','front_desk']))

@@ -1,4 +1,7 @@
-export async function POST_equipment_rental(request: NextRequest) {
+import { NextRequest } from 'next/server'
+import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
+
+export async function POST(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
   if (!requireRole(profile.role, ['super_admin','resort_owner','front_desk','cashier']))

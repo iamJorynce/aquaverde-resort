@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
 
 // GET /api/bookings — list bookings (filtered by query params)
-export async function GET_bookings(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
 
@@ -35,7 +35,7 @@ export async function GET_bookings(request: NextRequest) {
     if (guest) query = query.eq('guest_id', guest.id)
   }
 
-  if (status)   query = query.eq('status', status)
+  if (status)   query = query.eq('status', status as 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'no_show')
   if (guest_id) query = query.eq('guest_id', guest_id)
   if (room_id)  query = query.eq('room_id', room_id)
   if (date)     query = query.eq('check_in_date', date)
@@ -49,7 +49,7 @@ export async function GET_bookings(request: NextRequest) {
 }
 
 // POST /api/bookings — create new booking
-export async function POST_bookings(request: NextRequest) {
+export async function POST(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
 
@@ -88,6 +88,7 @@ export async function POST_bookings(request: NextRequest) {
   const { data: booking, error } = await supabase
     .from('bookings')
     .insert({
+      booking_number: `BK-${Date.now()}`,
       guest_id, accommodation_type, room_id, cottage_id,
       check_in_date, check_out_date,
       num_adults, num_children, num_seniors, num_pwd,
@@ -133,7 +134,7 @@ export async function POST_bookings(request: NextRequest) {
     action: 'CREATE_BOOKING',
     table_name: 'bookings',
     record_id: booking!.id,
-    new_data: booking,
+    new_data: booking as unknown as Record<string, unknown>,
   })
 
   return ok(booking, 201)

@@ -219,7 +219,7 @@ export async function getTransactionSummary(
       by_status: {} as Record<TransactionStatus, { count: number; amount: number }>,
     }
 
-    data?.forEach((txn: any) => {
+    data?.forEach((txn: Transaction) => {
       summary.total_amount += txn.amount || 0
 
       // By type

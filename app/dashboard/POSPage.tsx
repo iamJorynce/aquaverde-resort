@@ -7,7 +7,7 @@ import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './P
 import { logActivity } from './activityLog'
 import { usePermissions } from './permissions'
 
-interface MenuItem { id: string; name: string; price: number; category_id: string; menu_categories: { name: string; id: string } | null }
+interface MenuItem { id: string; name: string; price: number; category_id: string; is_available: boolean; menu_categories: { name: string; id: string } | null }
 interface CartItem  { id: string; name: string; price: number; qty: number }
 
 export default function POSPage() {

@@ -389,7 +389,7 @@ export default function WalkInPage() {
         amount_paid: amountDueNow,
         notes: roomLines.length > 1
           ? `Group booking ${groupNumber}: ${roomLines.map(r => r.label).join(', ')}`
-          : (bookingType === 'advance' ? 'Reservation fee collected. Balance due on check-in.' : null),
+          : (bookingType === 'advance' ? 'Reservation fee collected. Balance due on check-in.' : undefined),
       })
 
       // 8. Print single itemized receipt covering all rooms

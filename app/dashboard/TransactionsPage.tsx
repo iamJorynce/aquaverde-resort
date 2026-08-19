@@ -13,19 +13,8 @@ import {
   getTypeIcon,
   formatTransaction,
   exportTransactionsToCSV,
+  Transaction,
 } from '@/lib/transactionUtils'
-
-interface Transaction {
-  id: string
-  txn_number: string
-  txn_type: string
-  description: string
-  amount: number
-  payment_method: string
-  status: string
-  created_at: string
-  completed_at?: string
-}
 
 interface TransactionCounts {
   pos: number

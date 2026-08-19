@@ -1,9 +1,12 @@
+import { NextRequest } from 'next/server'
+import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
+
 // =============================================================================
 // src/app/api/bookings/[id]/route.ts
 // =============================================================================
 
 // GET /api/bookings/[id]
-export async function GET_booking_by_id(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
 
@@ -27,7 +30,7 @@ export async function GET_booking_by_id(request: NextRequest, { params }: { para
 }
 
 // PATCH /api/bookings/[id] — update booking status, dates, etc.
-export async function PATCH_booking(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
   if (!requireRole(profile.role, ['super_admin','resort_owner','front_desk','cashier']))
