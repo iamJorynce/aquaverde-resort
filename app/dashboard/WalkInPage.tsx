@@ -13,7 +13,7 @@ interface RoomOption {
   room_type_id: string
   room_types_config: { name: string; base_rate: number; max_capacity: number } | null
 }
-interface CottageOption { id: string; name: string; cottage_code: string; day_rate: number; overnight_rate: number; status?: string }
+interface CottageOption { id: string; name: string; cottage_code: string; day_rate: number; overnight_rate: number }
 interface EquipmentOption { id: string; name: string; hourly_rate: number | null; daily_rate: number | null; available_qty: number }
 
 export default function WalkInPage() {
@@ -25,8 +25,7 @@ export default function WalkInPage() {
   const [allRooms, setAllRooms] = useState<RoomOption[]>([])  // all rooms, unfiltered
   const [rooms, setRooms]       = useState<RoomOption[]>([])  // rooms available for the selected dates
   const [checkingAvailability, setCheckingAvailability] = useState(false)
-  const [allCottages, setAllCottages] = useState<CottageOption[]>([])  // all cottages, unfiltered
-  const [cottages, setCottages] = useState<CottageOption[]>([])        // cottages available for the selected dates
+  const [cottages, setCottages] = useState<CottageOption[]>([])
   const [equipment, setEquipment] = useState<EquipmentOption[]>([])
   const [loading, setLoading]   = useState(false)
   const [success, setSuccess]   = useState<any>(null)
@@ -53,11 +52,11 @@ export default function WalkInPage() {
   async function loadData() {
     const [{ data: roomData }, { data: cottageData }, { data: eqData }] = await Promise.all([
       supabase.from('rooms').select('id, room_number, room_type_id, status, room_types_config(name, base_rate, max_capacity)').order('room_number'),
-      supabase.from('cottages').select('id, name, cottage_code, day_rate, overnight_rate, status').order('cottage_code'),
+      supabase.from('cottages').select('id, name, cottage_code, day_rate, overnight_rate').eq('status', 'available').order('cottage_code'),
       supabase.from('equipment').select('id, name, hourly_rate, daily_rate, available_qty').eq('is_active', true).gt('available_qty', 0).order('name'),
     ])
     setAllRooms((roomData as any) ?? [])
-    setAllCottages(cottageData ?? [])
+    setCottages(cottageData ?? [])
     setEquipment(eqData ?? [])
 
     if (role === null) return // wait for role to load
@@ -79,11 +78,6 @@ export default function WalkInPage() {
   useEffect(() => {
     checkRoomAvailability()
   }, [form.check_in_date, form.check_out_date, allRooms])
-
-  // Re-check cottage availability whenever check-in/check-out dates change
-  useEffect(() => {
-    checkCottageAvailability()
-  }, [form.check_in_date, form.check_out_date, allCottages])
 
   async function checkRoomAvailability() {
     if (allRooms.length === 0 || !form.check_in_date || !form.check_out_date) return
@@ -117,40 +111,6 @@ export default function WalkInPage() {
     setForm(p => ({ ...p, room_ids: p.room_ids.filter(id => availableForDates.some(r => r.id === id)) }))
 
     setCheckingAvailability(false)
-  }
-
-  async function checkCottageAvailability() {
-    if (allCottages.length === 0 || !form.check_in_date || !form.check_out_date) return
-    if (form.check_in_date >= form.check_out_date) { setCottages([]); return }
-
-    // Find bookings that OVERLAP with the requested date range and have a cottage attached.
-    // Cottages can be attached either via the single `cottage_id` column (legacy/primary)
-    // or the `cottage_ids` array column (group bookings) — check both.
-    const { data: overlappingBookings } = await supabase
-      .from('bookings')
-      .select('cottage_id, cottage_ids')
-      .in('status', ['confirmed', 'checked_in', 'pending'])
-      .or('cottage_id.not.is.null,cottage_ids.not.is.null')
-      .lt('check_in_date', form.check_out_date)
-      .gt('check_out_date', form.check_in_date)
-
-    const bookedCottageIds = new Set<string>()
-    for (const b of overlappingBookings ?? []) {
-      if (b.cottage_id) bookedCottageIds.add(b.cottage_id)
-      for (const id of b.cottage_ids ?? []) bookedCottageIds.add(id)
-    }
-
-    // A cottage is available for these dates if it's not under maintenance
-    // AND has no overlapping booking in this date range.
-    const availableForDates = allCottages.filter(c =>
-      !bookedCottageIds.has(c.id) &&
-      c.status !== 'maintenance'
-    )
-
-    setCottages(availableForDates)
-
-    // Deselect any previously-selected cottages that are no longer available
-    setForm(p => ({ ...p, cottage_ids: p.cottage_ids.filter(id => availableForDates.some(c => c.id === id)) }))
   }
 
   function toggleRoom(id: string) {
@@ -266,31 +226,6 @@ export default function WalkInPage() {
       setLoading(false)
       checkRoomAvailability()
       return
-    }
-
-    // Same re-verification for cottages, right before submitting.
-    if (selectedCottages.length > 0) {
-      const { data: freshCottageOverlaps } = await supabase
-        .from('bookings')
-        .select('cottage_id, cottage_ids')
-        .in('status', ['confirmed', 'checked_in', 'pending'])
-        .or('cottage_id.not.is.null,cottage_ids.not.is.null')
-        .lt('check_in_date', form.check_out_date)
-        .gt('check_out_date', form.check_in_date)
-
-      const conflictingCottageIds = new Set<string>()
-      for (const b of freshCottageOverlaps ?? []) {
-        if (b.cottage_id) conflictingCottageIds.add(b.cottage_id)
-        for (const id of b.cottage_ids ?? []) conflictingCottageIds.add(id)
-      }
-      const conflictingCottages = selectedCottages.filter(c => conflictingCottageIds.has(c.id)).map(c => c.name)
-
-      if (conflictingCottages.length > 0) {
-        setError(`${conflictingCottages.join(', ')} ${conflictingCottages.length > 1 ? 'were' : 'was'} just booked by someone else. Please reselect.`)
-        setLoading(false)
-        checkCottageAvailability()
-        return
-      }
     }
 
     try {
@@ -426,12 +361,13 @@ export default function WalkInPage() {
 
       // 6. Single transaction for the whole payment
       await supabase.from('transactions').insert({
+        status: 'completed',
         txn_number: `TXN-${Date.now()}`,
         booking_id: primaryBooking.id,
         guest_id: guestId,
         txn_type: bookingType === 'advance' ? 'reservation_fee' : 'room',
         description: bookingType === 'advance'
-          ? `Reservation fee (50% of total bill) — ${roomLines.length} room(s), ${primaryBooking.booking_number}${roomLines.length > 1 ? ` +${roomLines.length - 1} more` : ''}`
+          ? `Reservation fee (50% of 1st room, 1st night) — ${roomLines.length} room(s), ${primaryBooking.booking_number}${roomLines.length > 1 ? ` +${roomLines.length - 1} more` : ''}`
           : `Walk-in payment — ${roomLines.length} room(s), ${primaryBooking.booking_number}${roomLines.length > 1 ? ` +${roomLines.length - 1} more` : ''}`,
         amount: amountDueNow,
         payment_method: payment.method,
@@ -552,7 +488,7 @@ export default function WalkInPage() {
 
       {bookingType === 'advance' && (
         <div className="mb-4 bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-700">
-          Advance booking: only the <strong>50% reservation fee (based on the entire bill)</strong> is collected now. Balance is due on actual check-in.
+          Advance booking: only the <strong>50% reservation fee (based on first room's first night)</strong> is collected now. Balance is due on actual check-in.
         </div>
       )}
 

@@ -59,6 +59,7 @@ export async function POST_pos_order(request: NextRequest) {
   } else {
     // Direct payment transaction
     await supabase.from('transactions').insert({
+      status: 'completed',
       txn_number: `TXN-${Date.now()}`,
       txn_type: 'pos',
       description: `POS Order #${order.order_number}`,

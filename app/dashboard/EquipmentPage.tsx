@@ -160,6 +160,7 @@ async function loadDamageLog() {
         // Pay now — immediate payment
         if (total > 0) {
           await supabase.from('transactions').insert({
+            status: 'completed',
             txn_number: `TXN-${Date.now()}`,
             guest_id: guestId ?? null,
             booking_id: rentForm.booking_id,
@@ -175,6 +176,7 @@ async function loadDamageLog() {
       // Walk-in / Registered → collect payment immediately
       if (total > 0) {
         await supabase.from('transactions').insert({
+          status: 'completed',
           txn_number: `TXN-${Date.now()}`,
           guest_id: guestId ?? null,
           booking_id: null,

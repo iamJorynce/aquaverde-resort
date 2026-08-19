@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -14,8 +14,9 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function BookingsPanel() {
   const supabase = createClient()
-  const [tab, setTab] = useState<'pending' | 'all'>('pending')
+  const [tab, setTab] = useState<'pending' | 'confirmed' | 'all'>('pending')
   const [pendingGroups, setPendingGroups] = useState<any[]>([])
+  const [confirmed, setConfirmed] = useState<any[]>([])
   const [all, setAll] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
@@ -23,19 +24,28 @@ export default function BookingsPanel() {
   const [rejectReason, setRejectReason] = useState('')
   const [imageModal, setImageModal] = useState<string | null>(null)
   const [approving, setApproving] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState<string | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [refundDeposit, setRefundDeposit] = useState(false)
 
   async function load() {
     setLoading(true)
-    const [{ data: pendingData }, { data: allData }] = await Promise.all([
+    const [{ data: pendingData }, { data: confirmedData }, { data: allData }] = await Promise.all([
       supabase.from('bookings')
         .select('*, guests(full_name, email, phone), rooms(room_number)')
         .eq('status', 'pending')
         .order('created_at', { ascending: false }),
       supabase.from('bookings')
         .select('*, guests(full_name, email, phone), rooms(room_number)')
+        .eq('status', 'confirmed')
+        .order('check_in_date', { ascending: true }),
+      supabase.from('bookings')
+        .select('*, guests(full_name, email, phone), rooms(room_number)')
         .order('created_at', { ascending: false })
         .limit(100),
     ])
+
+    setConfirmed(confirmedData ?? [])
 
     const groups: Record<string, any[]> = {}
     ;(pendingData ?? []).forEach((b: any) => {
@@ -94,6 +104,7 @@ export default function BookingsPanel() {
     // Record the verified deposit as a transaction so it shows up in
     // reports and remittance once collected.
     await supabase.from('transactions').insert({
+      status: 'completed',
       txn_number: `TXN-${Date.now()}`,
       booking_id: group.primary.id,
       guest_id: group.primary.guest_id,
@@ -122,6 +133,52 @@ export default function BookingsPanel() {
     load()
   }
 
+  async function cancelConfirmedBooking(b: any) {
+    if (!cancelReason) { showToast('Please enter a reason.'); return }
+
+    // Cancel every room in the same group (matches how a group was
+    // originally confirmed together), or just this booking if it's solo.
+    const groupBookings = b.group_number
+      ? confirmed.filter(c => c.group_number === b.group_number)
+      : [b]
+
+    for (const gb of groupBookings) {
+      const update: Record<string, any> = {
+        status: 'cancelled',
+        special_requests: (gb.special_requests ? gb.special_requests + '\n' : '') + `Cancelled: ${cancelReason}`,
+      }
+      if (refundDeposit && Number(gb.amount_paid) > 0) {
+        update.amount_paid = 0
+        update.payment_status = 'refunded'
+      }
+      const { error } = await supabase.from('bookings').update(update).eq('id', gb.id)
+      if (error) { showToast('Error: ' + error.message); return }
+    }
+
+    // Log the refund as a transaction so it's reflected in reports/remittance.
+    if (refundDeposit) {
+      const refundTotal = groupBookings.reduce((s: number, gb: any) => s + Number(gb.amount_paid || 0), 0)
+      if (refundTotal > 0) {
+        await supabase.from('transactions').insert({
+          status: 'completed',
+          txn_number: `TXN-${Date.now()}`,
+          booking_id: b.id,
+          guest_id: b.guest_id,
+          txn_type: 'refund',
+          description: `Deposit refund — booking cancelled (${b.booking_number}): ${cancelReason}`,
+          amount: -refundTotal,
+          payment_method: b.payment_method_used || 'cash',
+        })
+      }
+    }
+
+    showToast(`${b.booking_number} cancelled.`)
+    setCancelling(null)
+    setCancelReason('')
+    setRefundDeposit(false)
+    load()
+  }
+
   const nights = (b: any) => Math.max(1, Math.ceil(
     (new Date(b.check_out_date).getTime() - new Date(b.check_in_date).getTime()) / 86400000
   ))
@@ -146,6 +203,13 @@ export default function BookingsPanel() {
           Pending Approval
           {pendingGroups.length > 0 && (
             <span className="bg-yellow-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{pendingGroups.length}</span>
+          )}
+        </button>
+        <button onClick={() => setTab('confirmed')}
+          className={`px-4 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 ${tab === 'confirmed' ? 'bg-white shadow-sm' : 'text-gray-500'}`}>
+          Confirmed
+          {confirmed.length > 0 && (
+            <span className="bg-blue-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{confirmed.length}</span>
           )}
         </button>
         <button onClick={() => setTab('all')}
@@ -264,6 +328,83 @@ export default function BookingsPanel() {
                   </div>
                 )
               })}
+            </div>
+          )}
+
+          {tab === 'confirmed' && (
+            <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="text-left px-4 py-2.5">Booking #</th>
+                    <th className="text-left px-4 py-2.5">Guest</th>
+                    <th className="text-left px-4 py-2.5">Room</th>
+                    <th className="text-left px-4 py-2.5">Check-in</th>
+                    <th className="text-left px-4 py-2.5">Check-out</th>
+                    <th className="text-right px-4 py-2.5">Paid / Total</th>
+                    <th className="text-right px-4 py-2.5">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {confirmed.length === 0 ? (
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">No confirmed bookings.</td></tr>
+                  ) : confirmed.map(b => (
+                    <Fragment key={b.id}>
+                    <tr className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
+                      <td className="px-4 py-2.5">
+                        <div className="text-gray-700">{(b.guests as any)?.full_name ?? '—'}</div>
+                        <div className="text-xs text-gray-400">{(b.guests as any)?.phone}</div>
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-500">
+                        {(b.rooms as any)?.room_number ? `Room ${(b.rooms as any).room_number}` : '—'}
+                        {b.group_number && <span className="text-xs text-blue-400 ml-1">· group</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-500">{b.check_in_date}</td>
+                      <td className="px-4 py-2.5 text-gray-500">{b.check_out_date}</td>
+                      <td className="px-4 py-2.5 text-right font-medium">
+                        ₱{Number(b.amount_paid).toLocaleString()} / ₱{Number(b.total_amount).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button
+                          onClick={() => { setCancelling(cancelling === b.id ? null : b.id); setCancelReason(''); setRefundDeposit(false) }}
+                          className="px-3 py-1 border border-red-200 text-red-600 hover:bg-red-50 text-xs rounded-lg font-medium">
+                          {cancelling === b.id ? 'Close' : 'Cancel'}
+                        </button>
+                      </td>
+                    </tr>
+                    {cancelling === b.id && (
+                      <tr className="border-b border-gray-50 bg-red-50/40">
+                        <td colSpan={7} className="px-4 py-3">
+                          <div className="flex flex-col gap-2">
+                            <input value={cancelReason} onChange={e => setCancelReason(e.target.value)}
+                              placeholder="Reason for cancellation (e.g. guest requested, no-show, duplicate booking)..."
+                              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-full" />
+                            {Number(b.amount_paid) > 0 && (
+                              <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                                <input type="checkbox" checked={refundDeposit}
+                                  onChange={e => setRefundDeposit(e.target.checked)} />
+                                Refund the ₱{Number(b.amount_paid).toLocaleString()} deposit already collected
+                              </label>
+                            )}
+                            <div className="flex gap-2">
+                              <button onClick={() => cancelConfirmedBooking(b)}
+                                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-medium">
+                                Confirm Cancellation
+                              </button>
+                              <button onClick={() => setCancelling(null)}
+                                className="px-4 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg">
+                                Never mind
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 

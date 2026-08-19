@@ -56,6 +56,14 @@ interface Stats {
   revenue_this_month: number
 }
 
+interface TransactionCounts {
+  pos: number
+  checkin: number
+  checkout: number
+  dayuse: number
+  booking: number
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -67,11 +75,71 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  // ✨ NEW: Transaction badge state
+  const [transactionCounts, setTransactionCounts] = useState<TransactionCounts>({
+    pos: 0,
+    checkin: 0,
+    checkout: 0,
+    dayuse: 0,
+    booking: 0,
+  })
+  const [hasUnprocessedTransactions, setHasUnprocessedTransactions] = useState(false)
+
   // Shift prompt — shown to cashier/front_desk on login if no active shift
   const [showShiftPrompt, setShowShiftPrompt] = useState(false)
   const [shiftOpeningFund, setShiftOpeningFund] = useState(0)
   const [shiftType, setShiftType] = useState('AM')
   const [openingShift, setOpeningShift] = useState(false)
+
+  // ✨ NEW: Load transaction counts
+  async function loadTransactionCounts() {
+    try {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('txn_type, id')
+        .eq('status', 'pending')
+      
+      if (error) throw error
+
+      const counts: TransactionCounts = {
+        pos: 0,
+        checkin: 0,
+        checkout: 0,
+        dayuse: 0,
+        booking: 0,
+      }
+
+      data?.forEach(txn => {
+        if (txn.txn_type === 'pos') counts.pos++
+        else if (txn.txn_type === 'checkin') counts.checkin++
+        else if (txn.txn_type === 'checkout') counts.checkout++
+        else if (txn.txn_type === 'dayuse') counts.dayuse++
+        else if (txn.txn_type === 'booking') counts.booking++
+      })
+
+      setTransactionCounts(counts)
+      const hasUnprocessed = Object.values(counts).some(count => count > 0)
+      setHasUnprocessedTransactions(hasUnprocessed)
+    } catch (err) {
+      console.error('Error loading transaction counts:', err)
+    }
+  }
+
+  // ✨ NEW: Get badge count for module
+  function getModuleBadgeCount(moduleId: string): number {
+    switch (moduleId) {
+      case 'pos':
+        return transactionCounts.pos
+      case 'checkinout':
+        return transactionCounts.checkin + transactionCounts.checkout
+      case 'dayuse':
+        return transactionCounts.dayuse
+      case 'bookings':
+        return transactionCounts.booking
+      default:
+        return 0
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -96,13 +164,10 @@ export default function DashboardPage() {
       setBookings(bk ?? [])
       setLoading(false)
 
-      // Guard: if this user somehow lands on a page they can't access
-      // (e.g. browser back button, stale state), bounce to dashboard.
       if (!canAccess(prof?.role, page)) {
         setPage('dashboard')
       }
 
-      // Shift prompt: only for cashier and front_desk — not admin/owner
       const shiftRoles = ['cashier', 'front_desk']
       if (prof?.role && shiftRoles.includes(prof.role)) {
         const { data: activeShift } = await supabase
@@ -113,15 +178,31 @@ export default function DashboardPage() {
           .maybeSingle()
 
         if (!activeShift) {
-          // Auto-detect shift type by time of day
           const hour = new Date().getHours()
           const autoShiftType = hour < 12 ? 'AM' : hour < 18 ? 'PM' : 'Night'
           setShiftType(autoShiftType)
           setShowShiftPrompt(true)
         }
       }
+
+      // ✨ NEW: Load transaction counts
+      await loadTransactionCounts()
     }
     load()
+
+    // ✨ NEW: Real-time subscription
+    const subscription = supabase
+      .channel('transactions')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'transactions' },
+        () => loadTransactionCounts()
+      )
+      .subscribe()
+
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
 
   async function handleLogout() {
@@ -167,6 +248,28 @@ export default function DashboardPage() {
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
+
+      {/* ✨ NEW: Toast notification for pending transactions */}
+      {hasUnprocessedTransactions && (
+        <div className="fixed bottom-4 right-4 z-40 bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-lg max-w-sm">
+          <div className="flex items-start gap-3">
+            <div className="text-lg">⚠️</div>
+            <div>
+              <div className="font-semibold text-amber-900 text-sm">Pending Transactions</div>
+              <div className="text-xs text-amber-700 mt-1">
+                You have unprocessed transactions:
+              </div>
+              <div className="mt-2 space-y-1 text-xs text-amber-700">
+                {transactionCounts.pos > 0 && <div>• POS: {transactionCounts.pos} pending</div>}
+                {transactionCounts.checkin > 0 && <div>• Check-in: {transactionCounts.checkin} pending</div>}
+                {transactionCounts.checkout > 0 && <div>• Check-out: {transactionCounts.checkout} pending</div>}
+                {transactionCounts.dayuse > 0 && <div>• Day Use: {transactionCounts.dayuse} pending</div>}
+                {transactionCounts.booking > 0 && <div>• Bookings: {transactionCounts.booking} pending</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Shift opening prompt modal */}
       {showShiftPrompt && (
@@ -249,20 +352,35 @@ export default function DashboardPage() {
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-2">
-          {NAV.filter(n => canAccess(profile?.role, n.id)).map(n => (
-            <button
-              key={n.id}
-              onClick={() => { setPage(n.id); setSidebarOpen(false) }}
-              className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm transition-colors
-                ${page === n.id
-                  ? 'bg-blue-50 text-blue-700 font-medium border-r-2 border-blue-700'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
-                }`}
-            >
-              <span className="text-base">{n.icon}</span>
-              {n.label}
-            </button>
-          ))}
+          {NAV.filter(n => canAccess(profile?.role, n.id)).map(n => {
+            const count = getModuleBadgeCount(n.id)
+            const hasTransactions = count > 0
+            return (
+              <button
+                key={n.id}
+                onClick={() => { setPage(n.id); setSidebarOpen(false) }}
+                className={`w-full flex items-center justify-between gap-2.5 px-4 py-2 text-sm transition-colors
+                  ${page === n.id
+                    ? 'bg-blue-50 text-blue-700 font-medium border-r-2 border-blue-700'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
+                  }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">{n.icon}</span>
+                  {n.label}
+                </div>
+                {/* ✨ NEW: Badge */}
+                {hasTransactions && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
+                    <span className="bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                      {count}
+                    </span>
+                  </div>
+                )}
+              </button>
+            )
+          })}
         </nav>
 
         {/* Profile */}
@@ -314,13 +432,24 @@ export default function DashboardPage() {
                       { icon:'🏠', label:'Rooms', page:'rooms' },
                       { icon:'🧾', label:'Open POS', page:'pos' },
                       { icon:'✨', label:'Housekeeping', page:'housekeeping' },
-                    ].filter(a => canAccess(profile?.role, a.page)).map(a => (
-                      <button key={a.label} onClick={() => setPage(a.page)}
-                        className="bg-white border border-gray-200 rounded-xl p-3 text-center hover:border-blue-300 hover:bg-blue-50 transition-colors">
-                        <div className="text-xl mb-1">{a.icon}</div>
-                        <div className="text-xs text-gray-600">{a.label}</div>
-                      </button>
-                    ))}
+                    ].filter(a => canAccess(profile?.role, a.page)).map(a => {
+                      const count = getModuleBadgeCount(a.page)
+                      return (
+                        <button key={a.label} onClick={() => setPage(a.page)}
+                          className={`relative bg-white border border-gray-200 rounded-xl p-3 text-center hover:border-blue-300 hover:bg-blue-50 transition-colors ${
+                            count > 0 ? 'ring-2 ring-red-300' : ''
+                          }`}>
+                          <div className="text-xl mb-1">{a.icon}</div>
+                          <div className="text-xs text-gray-600">{a.label}</div>
+                          {/* ✨ NEW: Badge on quick actions */}
+                          {count > 0 && (
+                            <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center shadow-lg">
+                              {count}
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
                   </div>
 
                   {/* Stats */}

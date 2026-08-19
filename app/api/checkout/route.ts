@@ -50,6 +50,7 @@ export async function POST_checkout(request: NextRequest) {
   // Final payment transaction
   if (balance > 0) {
     await supabase.from('transactions').insert({
+      status: 'completed',
       txn_number: `TXN-${Date.now()}`,
       booking_id,
       guest_id: booking.guest_id,
@@ -64,6 +65,7 @@ export async function POST_checkout(request: NextRequest) {
   // Deposit refund transaction
   if (deposit_refund > 0) {
     await supabase.from('transactions').insert({
+      status: 'completed',
       txn_number: `TXN-${Date.now() + 1}`,
       booking_id,
       guest_id: booking.guest_id,

@@ -181,6 +181,7 @@ export default function CheckInOutPage() {
 
     if (paidNow > 0 && method) {
       await supabase.from('transactions').insert({
+        status: 'completed',
         txn_number: `TXN-${Date.now()}`,
         booking_id: group.primary.id,
         guest_id: group.primary.guest_id,
@@ -364,6 +365,7 @@ export default function CheckInOutPage() {
 
     if (damageAmount > 0 && paymentMethod) {
       await supabase.from('transactions').insert({
+        status: 'completed',
         txn_number: `TXN-${Date.now()}`,
         booking_id: finalBooking.id,
         txn_type: 'room',
@@ -457,6 +459,7 @@ export default function CheckInOutPage() {
 
     if (checkoutAmount > 0) {
       await supabase.from('transactions').insert({
+        status: 'completed',
         txn_number: `TXN-${Date.now()}`,
         booking_id: group.primary.id,
         guest_id: group.primary.guest_id,

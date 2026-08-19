@@ -31,6 +31,8 @@ export default function BillingPage() {
 
   const [detailModal, setDetailModal] = useState<any>(null)
   const [detailAddons, setDetailAddons] = useState<any[]>([])
+  const [detailPosOrders, setDetailPosOrders] = useState<any[]>([])
+  const [payPosOrders, setPayPosOrders] = useState<any[]>([])
 
 
   async function load() {
@@ -51,13 +53,16 @@ setInvoices(data ?? [])
   }
 
   async function openPay(inv: any) {
-    // Pull the booking addons (POS charges, cottage, equipment) for itemized display
-    const { data: addonData } = await supabase
-      .from('booking_addons')
-      .select('*')
-      .eq('booking_id', inv.booking_id)
-      .order('created_at')
+    const [{ data: addonData }, { data: posData }] = await Promise.all([
+      supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).order('created_at'),
+      supabase.from('orders')
+        .select('id, order_number, total, created_at, order_items(quantity, unit_price, subtotal, menu_items(name))')
+        .eq('booking_id', inv.booking_id)
+        .eq('order_type', 'room_service')
+        .order('created_at'),
+    ])
     setAddons(addonData ?? [])
+    setPayPosOrders(posData ?? [])
     setPayModal(inv)
     setPayAmount(Math.max(0, Number(inv.balance)))
     setPayMethod('cash')
@@ -65,12 +70,16 @@ setInvoices(data ?? [])
   }
 
   async function openDetail(inv: any) {
-    const { data: addonData } = await supabase
-      .from('booking_addons')
-      .select('*')
-      .eq('booking_id', inv.booking_id)
-      .order('created_at')
+    const [{ data: addonData }, { data: posData }] = await Promise.all([
+      supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).order('created_at'),
+      supabase.from('orders')
+        .select('id, order_number, total, created_at, order_items(quantity, unit_price, subtotal, menu_items(name))')
+        .eq('booking_id', inv.booking_id)
+        .eq('order_type', 'room_service')
+        .order('created_at'),
+    ])
     setDetailAddons(addonData ?? [])
+    setDetailPosOrders(posData ?? [])
     setDetailModal(inv)
   }
 
@@ -91,6 +100,7 @@ setInvoices(data ?? [])
 
       // Record the transaction
       await supabase.from('transactions').insert({
+        status: 'completed',
         txn_number: `TXN-${Date.now()}`,
         booking_id: payModal.booking_id,
         guest_id: payModal.guest_id,
@@ -130,10 +140,29 @@ setInvoices(data ?? [])
     }
   }
   async function reprintReceipt(inv: any) {
-  // Fetch addons for itemized breakdown
-  const { data: addons } = inv.booking_id
-    ? await supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).order('created_at')
-    : { data: [] }
+  const [{ data: addons }, { data: posOrders }] = inv.booking_id
+    ? await Promise.all([
+        supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).order('created_at'),
+        supabase.from('orders')
+          .select('id, order_number, total, created_at, order_items(quantity, unit_price, subtotal, menu_items(name))')
+          .eq('booking_id', inv.booking_id)
+          .eq('order_type', 'room_service')
+          .order('created_at'),
+      ])
+    : [{ data: [] }, { data: [] }]
+
+  const posLines = (posOrders ?? []).flatMap((o: any) =>
+    (o.order_items ?? []).map((i: any) => ({
+      label: (i.menu_items as any)?.name ?? 'Item',
+      qty: i.quantity > 1 ? i.quantity : undefined,
+      amount: Number(i.subtotal),
+    }))
+  )
+  const addonLines = (addons ?? []).map((a: any) => ({
+    label: a.name,
+    qty: a.quantity > 1 ? a.quantity : undefined,
+    amount: Number(a.total_price ?? a.unit_price * a.quantity),
+  }))
 
   const isAccommodation = inv.bookings?.accommodation_type !== 'day_use'
   const roomLabel = inv.bookings?.rooms?.room_number
@@ -142,28 +171,13 @@ setInvoices(data ?? [])
 
   const lineItems = isAccommodation
   ? [
-      {
-        label: roomLabel,
-        amount: Number(inv.subtotal),
-      },
-      ...(addons ?? []).map((a: any) => ({
-        label: a.name,
-        qty: a.quantity > 1 ? a.quantity : undefined,
-        amount: Number(a.total_price ?? a.unit_price * a.quantity),
-      })),
+      { label: roomLabel, amount: Number(inv.subtotal) },
+      ...posLines,
+      ...addonLines,
     ]
-  : (addons && addons.length > 0)
-      ? addons.map((a: any) => ({
-          label: a.name,
-          qty: a.quantity > 1 ? a.quantity : undefined,
-          amount: Number(a.total_price ?? a.unit_price * a.quantity),
-        }))
-      : [
-          {
-            label: 'Day Use Entry',
-            amount: Number(inv.total),
-          }
-        ]
+  : (posLines.length > 0 || addonLines.length > 0)
+      ? [...posLines, ...addonLines]
+      : [{ label: 'Day Use Entry', amount: Number(inv.total) }]
 
   printReceipt({
     title: 'Sea Eagle Beach Resort',
@@ -308,13 +322,29 @@ setInvoices(data ?? [])
                 </div>
               )}
              
+              {detailPosOrders.length > 0 && (
+                <>
+                  <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide pt-1">🍽️ Restaurant Orders</div>
+                  {detailPosOrders.map((o: any) => (
+                    <div key={o.id}>
+                      <div className="text-[10px] text-gray-400">{o.order_number} · {new Date(o.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}</div>
+                      {(o.order_items ?? []).map((i: any, idx: number) => (
+                        <div key={idx} className="flex justify-between text-gray-600 pl-2">
+                          <span>{(i.menu_items as any)?.name ?? 'Item'}{i.quantity > 1 ? ` × ${i.quantity}` : ''}</span>
+                          <span>₱{Number(i.subtotal).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </>
+              )}
               {detailAddons.map((a: any) => (
                 <div key={a.id} className="flex justify-between text-gray-600">
                   <span>{a.name}{a.quantity > 1 ? ` × ${a.quantity}` : ''}</span>
                   <span>₱{Number(a.total_price ?? a.unit_price * a.quantity).toLocaleString()}</span>
                 </div>
               ))}
-              {detailAddons.length === 0 && !detailModal.bookings?.rooms && (
+              {detailAddons.length === 0 && detailPosOrders.length === 0 && !detailModal.bookings?.rooms && (
                 <div className="text-xs text-gray-400 italic">No itemized breakdown available.</div>
               )}
               <div className="flex justify-between font-medium text-gray-800 border-t border-gray-200 pt-1.5 mt-1">
@@ -359,6 +389,22 @@ setInvoices(data ?? [])
 
             {/* Compact breakdown */}
             <div className="text-xs space-y-1 bg-gray-50 rounded-lg p-3 mb-3">
+              {payPosOrders.length > 0 && (
+                <>
+                  <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">🍽️ Restaurant Orders</div>
+                  {payPosOrders.map((o: any) => (
+                    <div key={o.id}>
+                      <div className="text-[10px] text-gray-400">{o.order_number}</div>
+                      {(o.order_items ?? []).map((i: any, idx: number) => (
+                        <div key={idx} className="flex justify-between text-gray-500 pl-2">
+                          <span>{(i.menu_items as any)?.name ?? 'Item'}{i.quantity > 1 ? ` × ${i.quantity}` : ''}</span>
+                          <span>₱{Number(i.subtotal).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </>
+              )}
               {addons.map((a: any) => (
                 <div key={a.id} className="flex justify-between text-gray-500">
                   <span>{a.name}{a.quantity > 1 ? ` × ${a.quantity}` : ''}</span>

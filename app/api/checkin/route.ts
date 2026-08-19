@@ -33,6 +33,7 @@ export async function POST_checkin(request: NextRequest) {
   // Record deposit transaction
   if (security_deposit_paid > 0) {
     await supabase.from('transactions').insert({
+      status: 'completed',
       txn_number: `TXN-${Date.now()}`,
       booking_id,
       guest_id: booking.guest_id,

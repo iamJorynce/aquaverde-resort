@@ -118,7 +118,7 @@ export default function RemittancePage() {
         .order('created_at'),
       // Only count day_use_entries where the linked transaction is NOT voided
       supabase.from('day_use_entries')
-        .select('area, num_adults, num_children, num_seniors, num_pwd, transactions!day_use_id(voided)')
+        .select('area, area_breakdown, num_adults, num_children, num_seniors, num_pwd, transactions!day_use_id(voided)')
         .gte('created_at', start).lte('created_at', end),
       supabase.from('day_use_rates').select('area, guest_type, rate').eq('is_active', true),
     ])
@@ -135,14 +135,32 @@ export default function RemittancePage() {
         : entryTxns?.voided === true
       if (isVoided) continue
 
+      const breakdown = (e as any).area_breakdown as
+        { area: string; adults: number; children: number; seniors: number; pwd: number }[] | null
       const entryAreas = (e.area ?? '').split(',').map((a: string) => a.trim()).filter(Boolean)
-      for (const area of entryAreas) {
+
+      if (breakdown?.length) {
+        // Real per-area split — each area only gets its own counts.
+        for (const b of breakdown) {
+          if (!areaMap[b.area]) areaMap[b.area] = { adults: 0, children: 0, seniors: 0, pwd: 0 }
+          areaMap[b.area].adults   += b.adults   ?? 0
+          areaMap[b.area].children += b.children ?? 0
+          areaMap[b.area].seniors  += b.seniors  ?? 0
+          areaMap[b.area].pwd      += b.pwd      ?? 0
+        }
+      } else if (entryAreas.length === 1) {
+        // Older entry with no stored breakdown, but only one area involved —
+        // the combined total IS that area's total, so this is still accurate.
+        const area = entryAreas[0]
         if (!areaMap[area]) areaMap[area] = { adults: 0, children: 0, seniors: 0, pwd: 0 }
         areaMap[area].adults   += (e.num_adults   ?? 0)
         areaMap[area].children += (e.num_children ?? 0)
         areaMap[area].seniors  += (e.num_seniors  ?? 0)
         areaMap[area].pwd      += (e.num_pwd      ?? 0)
       }
+      // else: older multi-area entry with no stored breakdown — can't be
+      // split accurately, so it's intentionally left out rather than
+      // double-counted. See area_breakdown backfill note.
     }
     const getRate = (area: string, type: string) =>
       (rates ?? []).find(r => r.area === area && r.guest_type === type)?.rate ?? 0
@@ -384,7 +402,7 @@ export default function RemittancePage() {
         .eq('voided', false)
         .order('created_at'),
       supabase.from('day_use_entries')
-        .select('area, num_adults, num_children, num_seniors, num_pwd, transactions!day_use_id(voided)')
+        .select('area, area_breakdown, num_adults, num_children, num_seniors, num_pwd, transactions!day_use_id(voided)')
         .gte('created_at', shift.opened_at).lte('created_at', shift.closed_at ?? new Date().toISOString()),
       supabase.from('day_use_rates').select('area, guest_type, rate').eq('is_active', true),
     ])
@@ -395,8 +413,20 @@ export default function RemittancePage() {
       const entryTxns = (e as any).transactions
       const isVoided = Array.isArray(entryTxns) ? entryTxns.some((t: any) => t.voided) : entryTxns?.voided === true
       if (isVoided) continue
+      const breakdown = (e as any).area_breakdown as
+        { area: string; adults: number; children: number; seniors: number; pwd: number }[] | null
       const areas = (e.area ?? '').split(',').map((a: string) => a.trim()).filter(Boolean)
-      for (const a of areas) {
+
+      if (breakdown?.length) {
+        for (const b of breakdown) {
+          if (!areaMap[b.area]) areaMap[b.area] = { adults: 0, children: 0, seniors: 0, pwd: 0 }
+          areaMap[b.area].adults   += b.adults   ?? 0
+          areaMap[b.area].children += b.children ?? 0
+          areaMap[b.area].seniors  += b.seniors  ?? 0
+          areaMap[b.area].pwd      += b.pwd      ?? 0
+        }
+      } else if (areas.length === 1) {
+        const a = areas[0]
         if (!areaMap[a]) areaMap[a] = { adults: 0, children: 0, seniors: 0, pwd: 0 }
         areaMap[a].adults   += (e.num_adults   ?? 0)
         areaMap[a].children += (e.num_children ?? 0)

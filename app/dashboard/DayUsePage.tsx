@@ -201,11 +201,20 @@ export default function DayUsePage() {
 
       const activeAreas = areas.filter(a => areaFee(a) > 0)
 
+      // Structured per-area pax breakdown (used by remittance reporting so it
+      // doesn't have to re-split the combined totals below across areas —
+      // that re-split double-counts pax whenever an entry spans 2+ areas).
+      const areaBreakdownJson = activeAreas.map(a => {
+        const c = areaCounts[a] ?? { adult: 0, child: 0, senior: 0, pwd: 0 }
+        return { area: a, adults: c.adult, children: c.child, seniors: c.senior, pwd: c.pwd }
+      })
+
       const { data: entry, error: insertError } = await supabase.from('day_use_entries').insert({
         entry_number: entryNumber,
         guest_name: form.guest_name || null,
         guest_phone: form.guest_phone || null,
         area: activeAreas.join(', '),
+        area_breakdown: areaBreakdownJson,
         num_adults: areas.reduce((s, a) => s + (areaCounts[a]?.adult ?? 0), 0),
         num_children: areas.reduce((s, a) => s + (areaCounts[a]?.child ?? 0), 0),
         num_seniors: areas.reduce((s, a) => s + (areaCounts[a]?.senior ?? 0), 0),
@@ -267,6 +276,7 @@ const { data: dayUseBooking, error: bookingError } = await supabase.from('bookin
 if (bookingError) throw new Error('Booking insert failed: ' + bookingError.message)
 
       await supabase.from('transactions').insert({
+        status: 'completed',
         txn_number: `TXN-${Date.now()}`,
         day_use_id: entry.id,
         txn_type: 'day_use',

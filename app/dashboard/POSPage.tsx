@@ -145,6 +145,7 @@ export default function POSPage() {
         }
       } else {
         await supabase.from('transactions').insert({
+          status: 'completed',
           txn_number: `TXN-${Date.now()}`,
           txn_type: 'pos',
           description: `POS Order ${orderNumber}${guestName !== 'Walk-in Guest' ? ` — ${guestName}` : ''}`,

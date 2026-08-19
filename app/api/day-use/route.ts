@@ -53,6 +53,7 @@ export async function POST_dayuse(request: NextRequest) {
 
   // Transaction record
   await supabase.from('transactions').insert({
+    status: 'completed',
     txn_number: `TXN-${Date.now()}`,
     day_use_id: data.id,
     txn_type: 'day_use',
