@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -13,7 +13,7 @@ interface RoomOption {
   room_types_config: { name: string; base_rate: number; max_capacity: number } | null
 }
 
-export default function BookingPage() {
+function BookingPageContent() {
   const supabase = createClient()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -587,5 +587,13 @@ total_amount: rl.amount,
         </div>
       </section>
     </>
+  )
+}
+
+export default function BookingPage() {
+  return (
+    <Suspense fallback={null}>
+      <BookingPageContent />
+    </Suspense>
   )
 }
