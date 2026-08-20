@@ -265,74 +265,38 @@ function BookingPageContent() {
       const proofUrl = urlData.publicUrl
       setUploading(false)
 
-      const guestCode = `G-${Date.now().toString().slice(-6)}`
-      const { data: guest, error: guestError } = await supabase
-        .from('guests')
-        .insert({ full_name: form.full_name, email: form.email || null, phone: form.phone || null, guest_code: guestCode })
-        .select('id').single()
-      if (guestError) throw guestError
+      // Guest + booking rows are created server-side (service role) since
+      // this visitor is anonymous and the anon browser client is (correctly)
+      // blocked by RLS from writing to `guests` / `bookings` directly.
+      const res = await fetch('/api/public/booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: form.full_name,
+          email: form.email || null,
+          phone: form.phone || null,
+          check_in_date: form.check_in_date,
+          check_out_date: form.check_out_date,
+          num_adults: form.num_adults,
+          num_children: form.num_children,
+          room_lines: roomLines.map(rl => ({ room_id: rl.id, amount: rl.amount })),
+          special_requests: form.special_requests || null,
+          payment_proof_url: proofUrl,
+          payment_reference: form.payment_reference,
+          payment_method: form.payment_method,
+        }),
+      })
+      const result = await res.json()
+      if (!result.success) throw new Error(result.error || 'Something went wrong. Please try again.')
 
-      const groupNumber = `GRP-${Date.now().toString().slice(-8)}`
-      const createdBookings: any[] = []
-
-      for (let i = 0; i < roomLines.length; i++) {
-        const rl = roomLines[i]
-        const isPrimary = i === 0
-
-        const { data: booking, error: bookingError } = await supabase
-          .from('bookings')
-          .insert({
-            guest_id: guest.id,
-            room_id: rl.id,
-            booking_type: 'online',
-            accommodation_type: 'room',
-            num_adults: isPrimary ? form.num_adults : 0,
-            num_children: isPrimary ? form.num_children : 0,
-            group_number: roomLines.length > 1 ? groupNumber : null,
-            is_group_primary: isPrimary,
-            check_in_date: form.check_in_date,
-            check_out_date: form.check_out_date,
-            subtotal: rl.amount,
-            // No cottages/equipment on public bookings — each room booking's
-// total_amount is simply its own amount. Do NOT put the full group
-// subtotal on the primary booking, or summing across the group later
-// (admin panel, confirmation page) will double-count.
-total_amount: rl.amount,
-            amount_paid: 0,  // not credited until admin verifies the proof
-            payment_status: 'unpaid',
-            status: 'pending',  // admin verifies proof, then confirms
-            payment_proof_url: isPrimary ? proofUrl : null,
-            payment_reference: isPrimary ? form.payment_reference : null,
-            payment_method_used: isPrimary ? form.payment_method : null,
-            payment_submitted_at: isPrimary ? new Date().toISOString() : null,
-            special_requests: [
-              form.special_requests || null,
-              roomLines.length > 1 ? `Group booking: ${groupNumber} (${roomLines.length} rooms, ${totalPax} total guests)` : null,
-            ].filter(Boolean).join(' | ') || null,
-          })
-          .select().single()
-
-        if (bookingError) throw bookingError
-        createdBookings.push(booking)
-      }
-
-      router.push(`/booking/confirmation/${createdBookings[0].id}${roomLines.length > 1 ? `?group=${groupNumber}&count=${roomLines.length}` : ''}`)
+      const { primary_booking_id, group_number } = result.data
+      router.push(`/booking/confirmation/${primary_booking_id}${group_number ? `?group=${group_number}&count=${roomLines.length}` : ''}`)
 
     } catch (err: any) {
       const isDoubleBooking = err.message?.includes('no_overlapping_room_bookings') || err.code === '23P01'
-      let debugSuffix = ''
-      if (err.message?.includes('row-level security')) {
-        // TEMP DIAGNOSTIC — remove once the mobile RLS issue is confirmed
-        // fixed. Surfaces what auth state the client actually has at the
-        // moment of failure, since this only reproduces on mobile.
-        try {
-          const { data: sessionData } = await supabase.auth.getSession()
-          debugSuffix = ` [debug: session=${sessionData.session ? 'present' : 'none'}, role=${sessionData.session?.user?.role ?? 'anon'}, ua=${navigator.userAgent.slice(0, 60)}]`
-        } catch {}
-      }
-      setError((isDoubleBooking
+      setError(isDoubleBooking
         ? 'One of your selected rooms was just booked by someone else. Please go back and reselect.'
-        : (err.message || 'Something went wrong. Please try again.')) + debugSuffix)
+        : (err.message || 'Something went wrong. Please try again.'))
       setLoading(false)
       setUploading(false)
     }
