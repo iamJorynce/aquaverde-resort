@@ -128,8 +128,8 @@ export default async function ConfirmationPage({
               <div className="flex justify-between">
                 <span className="text-gray-500">Guests</span>
                 <span className="font-medium">
-                  {booking.num_adults} adult{booking.num_adults > 1 ? 's' : ''}
-                  {booking.num_children > 0 ? `, ${booking.num_children} child${booking.num_children > 1 ? 'ren' : ''}` : ''}
+                  {booking.num_adults ?? 0} adult{(booking.num_adults ?? 0) > 1 ? 's' : ''}
+                  {(booking.num_children ?? 0) > 0 ? `, ${booking.num_children} child${(booking.num_children ?? 0) > 1 ? 'ren' : ''}` : ''}
                 </span>
               </div>
             </div>
