@@ -83,6 +83,7 @@ export async function POST(request: NextRequest) {
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .insert({
+        booking_number: `BK-${Date.now()}${i}`,
         guest_id: guest.id,
         room_id: rl.room_id,
         booking_type: 'online',
