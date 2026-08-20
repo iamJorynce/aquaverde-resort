@@ -31,6 +31,7 @@ async function loadDamageLog() {
   const [form, setForm] = useState({
     name: '', total_quantity: 1, hourly_rate: 0, daily_rate: 0, deposit_amount: 0,
   })
+  const [search, setSearch] = useState('')
 
   const [rentModal, setRentModal] = useState<any>(null)
   const [rentForm, setRentForm] = useState({
@@ -467,6 +468,9 @@ async function loadDamageLog() {
 
   const canManageEquipment = can('canManageEquipmentCatalog')
 
+  const q = search.trim().toLowerCase()
+  const filteredEquipment = equipment.filter(e => !q || e.name?.toLowerCase().includes(q))
+
   return (
     <div>
       {hasActiveShift === false && (
@@ -501,6 +505,24 @@ async function loadDamageLog() {
       🔧 Damage Log
     </button>
           </div>
+        )}
+      </div>
+
+      <div className="relative mb-4 max-w-sm">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+        </svg>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search equipment name..."
+          className="w-full pl-9 pr-8 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
+        />
+        {search && (
+          <button onClick={() => setSearch('')}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
+            ✕
+          </button>
         )}
       </div>
 {showDamageLog && (
@@ -558,9 +580,9 @@ async function loadDamageLog() {
               </tr>
             </thead>
             <tbody>
-              {equipment.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-xs">No equipment found.</td></tr>
-              ) : equipment.map(e => (
+              {filteredEquipment.length === 0 ? (
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-xs">{q ? 'No equipment matches your search.' : 'No equipment found.'}</td></tr>
+              ) : filteredEquipment.map(e => (
                 <tr key={e.id} className="border-b border-gray-50 hover:bg-gray-50">
                   <td className="px-4 py-2.5 font-medium text-gray-700">{e.name}</td>
                   <td className="px-4 py-2.5">{e.total_quantity}</td>

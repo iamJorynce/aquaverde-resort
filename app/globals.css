@@ -24,3 +24,39 @@ textarea {
   color: #111827 !important;
   background-color: #ffffff !important;
 }
+
+/* Print styles — used by the Reports page's "Print Report" button.
+   The dashboard shell (app/dashboard/page.tsx) uses fixed viewport height
+   and overflow-hidden/auto to keep the sidebar/topbar pinned on screen;
+   left as-is, that clips a printed report to a single page of whatever
+   was visible on screen. These overrides reset it to natural document
+   flow only when printing, so a long report (many rows) prints in full
+   across as many physical pages as it needs. Combined with the
+   `print:hidden` classes on the sidebar/topbar/report nav/filters, only
+   the actual report content is printed. */
+@media print {
+  @page {
+    size: A4;
+    margin: 1.5cm;
+  }
+
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .flex.h-screen {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  main {
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  * {
+    overflow: visible !important;
+  }
+}

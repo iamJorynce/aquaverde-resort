@@ -39,6 +39,7 @@ export default function RemittancePage() {
 
   // History
   const [history, setHistory] = useState<any[]>([])
+  const [historySearch, setHistorySearch] = useState('')
 
   // Void transaction
   const [voidModal, setVoidModal] = useState<any>(null)
@@ -873,9 +874,34 @@ ${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>$
       {/* ===== HISTORY TAB ===== */}
       {tab === 'history' && (
         <div className="space-y-3">
-          {history.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 text-sm">No remittances yet.</div>
-          ) : history.map(rem => (
+          <div className="relative mb-1 max-w-sm">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+            </svg>
+            <input
+              value={historySearch}
+              onChange={e => setHistorySearch(e.target.value)}
+              placeholder="Search remittance #, cashier, status..."
+              className="w-full pl-9 pr-8 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
+            />
+            {historySearch && (
+              <button onClick={() => setHistorySearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
+                ✕
+              </button>
+            )}
+          </div>
+          {(() => {
+            const hq = historySearch.trim().toLowerCase()
+            const filteredHistory = history.filter(rem =>
+              !hq || [rem.remittance_number, rem.cashier_name, rem.status]
+                .some(v => v && String(v).toLowerCase().includes(hq))
+            )
+            return filteredHistory.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-sm">
+                {hq ? 'No remittances match your search.' : 'No remittances yet.'}
+              </div>
+            ) : filteredHistory.map(rem => (
             <div key={rem.id} className="bg-white border border-gray-100 rounded-xl p-4">
               <div className="flex items-start justify-between mb-3">
                 <div>
@@ -917,7 +943,8 @@ ${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>$
                 <div className="mt-2 text-xs text-green-600">Approved by {rem.approved_by_name}</div>
               )}
             </div>
-          ))}
+            ))
+          })()}
         </div>
       )}
 

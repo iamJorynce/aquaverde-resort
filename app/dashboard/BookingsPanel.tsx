@@ -27,6 +27,7 @@ export default function BookingsPanel() {
   const [cancelling, setCancelling] = useState<string | null>(null)
   const [cancelReason, setCancelReason] = useState('')
   const [refundDeposit, setRefundDeposit] = useState(false)
+  const [search, setSearch] = useState('')
 
   async function load() {
     setLoading(true)
@@ -219,6 +220,27 @@ export default function BookingsPanel() {
     (new Date(b.check_out_date).getTime() - new Date(b.check_in_date).getTime()) / 86400000
   ))
 
+  // Search matches booking #, group #, guest name/phone/email, room number, and status.
+  const q = search.trim().toLowerCase()
+  const matchesSearch = (b: any) => {
+    if (!q) return true
+    return [
+      b.booking_number,
+      b.group_number,
+      (b.guests as any)?.full_name,
+      (b.guests as any)?.phone,
+      (b.guests as any)?.email,
+      (b.rooms as any)?.room_number ? `Room ${(b.rooms as any).room_number}` : '',
+      b.status,
+    ].some(v => v && String(v).toLowerCase().includes(q))
+  }
+
+  const filteredPendingGroups = pendingGroups.filter(g =>
+    !q || matchesSearch(g.primary) || g.roomLabels.join(' ').toLowerCase().includes(q)
+  )
+  const filteredConfirmed = confirmed.filter(matchesSearch)
+  const filteredAll = all.filter(matchesSearch)
+
   return (
     <div>
       {toast && (
@@ -254,17 +276,35 @@ export default function BookingsPanel() {
         </button>
       </div>
 
+      <div className="relative mb-4 max-w-sm">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+        </svg>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search booking #, guest, room..."
+          className="w-full pl-9 pr-8 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
+        />
+        {search && (
+          <button onClick={() => setSearch('')}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
+            ✕
+          </button>
+        )}
+      </div>
+
       {loading ? (
         <div className="text-center py-12 text-gray-400 text-sm">Loading...</div>
       ) : (
         <>
           {tab === 'pending' && (
             <div className="space-y-3">
-              {pendingGroups.length === 0 ? (
+              {filteredPendingGroups.length === 0 ? (
                 <div className="text-center py-12 bg-white border border-gray-100 rounded-xl text-gray-400 text-sm">
-                  No pending bookings — you're all caught up! 🎉
+                  {q ? 'No pending bookings match your search.' : "No pending bookings — you're all caught up! 🎉"}
                 </div>
-              ) : pendingGroups.map(group => {
+              ) : filteredPendingGroups.map(group => {
                 const b = group.primary
                 const hasProof = !!b.payment_proof_url
                 const groupTotal = group.allBookings.reduce((s: number, gb: any) => s + Number(gb.total_amount), 0)
@@ -382,9 +422,9 @@ export default function BookingsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {confirmed.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">No confirmed bookings.</td></tr>
-                  ) : confirmed.map(b => (
+                  {filteredConfirmed.length === 0 ? (
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">{q ? 'No confirmed bookings match your search.' : 'No confirmed bookings.'}</td></tr>
+                  ) : filteredConfirmed.map(b => (
                     <Fragment key={b.id}>
                     <tr className="border-b border-gray-50 hover:bg-gray-50">
                       <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
@@ -459,9 +499,9 @@ export default function BookingsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {all.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">No bookings yet.</td></tr>
-                  ) : all.map(b => (
+                  {filteredAll.length === 0 ? (
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">{q ? 'No bookings match your search.' : 'No bookings yet.'}</td></tr>
+                  ) : filteredAll.map(b => (
                     <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
                       <td className="px-4 py-2.5 font-medium text-blue-700">{b.booking_number}</td>
                       <td className="px-4 py-2.5">

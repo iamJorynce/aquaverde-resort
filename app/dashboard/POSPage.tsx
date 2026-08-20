@@ -7,8 +7,11 @@ import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './P
 import { logActivity } from './activityLog'
 import { usePermissions } from './permissions'
 
-interface MenuItem { id: string; name: string; price: number; category_id: string; is_available: boolean; menu_categories: { name: string; id: string } | null }
+interface MenuItem { id: string; name: string; price: number; category_id: string; is_available: boolean; direct_inventory_item_id: string | null; menu_categories: { name: string; id: string } | null }
 interface CartItem  { id: string; name: string; price: number; qty: number }
+interface InventoryItemLite { id: string; name: string; current_stock: number; unit: string }
+interface RecipeRow { id: string; menu_item_id: string; inventory_item_id: string; quantity_per_unit: number; inventory_items: { name: string; current_stock: number; unit: string } | null }
+interface DirectStockInfo { inventory_item_id: string; name: string; current_stock: number; unit: string }
 
 export default function POSPage() {
   const supabase = createClient()
@@ -36,19 +39,58 @@ export default function POSPage() {
   const [editingItem, setEditingItem] = useState<any>(null)
   const [catForm, setCatForm] = useState('')
   const [showCatForm, setShowCatForm] = useState(false)
+  const [editingCat, setEditingCat] = useState<{ id: string; name: string } | null>(null)
+
+  // Recipe / ingredients (optional link to Inventory — enables stock check + auto-deduct on sale)
+  const [inventoryItems, setInventoryItems] = useState<InventoryItemLite[]>([])
+  const [recipes, setRecipes] = useState<Record<string, RecipeRow[]>>({})
+  const [ingredientForm, setIngredientForm] = useState({ inventory_item_id: '', quantity_per_unit: 1 })
+  const [savingIngredient, setSavingIngredient] = useState(false)
+
+  // Direct Stock (merchandise — always exactly 1:1, no recipe needed).
+  // Keyed by menu_item_id so the editor can show the current link at a glance.
+  const [directStock, setDirectStock] = useState<Record<string, DirectStockInfo>>({})
+  const [directStockForm, setDirectStockForm] = useState('')
+  const [savingDirectStock, setSavingDirectStock] = useState(false)
 
   async function load() {
-    const [{ data: menuItems }, { data: bookings }, { data: cats }] = await Promise.all([
-      supabase.from('menu_items').select('id, name, price, category_id, is_available, menu_categories(id, name)').order('name'),
+    const [{ data: menuItems }, { data: bookings }, { data: cats }, { data: invItems }, { data: recipeRows }] = await Promise.all([
+      // Cast: direct_inventory_item_id isn't in the generated Database types
+      // yet — run `npx supabase gen types typescript` after the migration,
+      // then this cast can be removed.
+      (supabase as any).from('menu_items').select('id, name, price, category_id, is_available, direct_inventory_item_id, inventory_items(id, name, current_stock, unit), menu_categories(id, name)').order('name'),
       supabase.from('bookings').select('id, booking_number, accommodation_type, guests(full_name), rooms(room_number)').eq('status', 'checked_in'),
       supabase.from('menu_categories').select('id, name').order('name'),
+      supabase.from('inventory_items').select('id, name, current_stock, unit').eq('is_active', true).order('name'),
+      supabase.from('menu_item_ingredients').select('id, menu_item_id, inventory_item_id, quantity_per_unit, inventory_items(name, current_stock, unit)'),
     ])
     const list = (menuItems as any) ?? []
     setItems(list)
+
+    const directMap: Record<string, DirectStockInfo> = {}
+    list.forEach((i: any) => {
+      if (i.direct_inventory_item_id && i.inventory_items) {
+        directMap[i.id] = {
+          inventory_item_id: i.direct_inventory_item_id,
+          name: i.inventory_items.name,
+          current_stock: i.inventory_items.current_stock,
+          unit: i.inventory_items.unit,
+        }
+      }
+    })
+    setDirectStock(directMap)
     setAllCategories(cats ?? [])
     const catNames = Array.from(new Set(list.filter((i: any) => i.is_available).map((i: any) => i.menu_categories?.name).filter(Boolean))) as string[]
     if (catNames.length && !catNames.includes(activeCategory)) setActiveCategory(catNames[0])
     setActiveBookings(bookings ?? [])
+    setInventoryItems(invItems ?? [])
+
+    const recipeMap: Record<string, RecipeRow[]> = {}
+    ;((recipeRows as any) ?? []).forEach((r: RecipeRow) => {
+      if (!recipeMap[r.menu_item_id]) recipeMap[r.menu_item_id] = []
+      recipeMap[r.menu_item_id].push(r)
+    })
+    setRecipes(recipeMap)
 
     if (role === null) return // wait for role to load
     if (!isAdmin) {
@@ -83,6 +125,39 @@ export default function POSPage() {
 
   const subtotal = cart.reduce((s, c) => s + c.price * c.qty, 0)
 
+  // For cart items that have a recipe (menu_item_ingredients) and/or a direct
+  // stock link (direct_inventory_item_id — merchandise, always 1:1), compute
+  // how much of each inventory item the current cart would consume, and
+  // whether that exceeds what's currently in stock. Items with neither are
+  // skipped — the inventory link is optional per menu item.
+  function getStockRequirements() {
+    const required: Record<string, { qty: number; name: string; unit: string; available: number }> = {}
+
+    function addRequirement(key: string, need: number, name: string, unit: string, available: number) {
+      if (!required[key]) required[key] = { qty: 0, name, unit, available }
+      required[key].qty += need
+    }
+
+    for (const c of cart) {
+      const ingredients = recipes[c.id] ?? []
+      for (const ing of ingredients) {
+        addRequirement(
+          ing.inventory_item_id,
+          ing.quantity_per_unit * c.qty,
+          ing.inventory_items?.name ?? 'item',
+          ing.inventory_items?.unit ?? '',
+          ing.inventory_items?.current_stock ?? 0
+        )
+      }
+
+      const direct = directStock[c.id]
+      if (direct) {
+        addRequirement(direct.inventory_item_id, c.qty, direct.name, direct.unit, direct.current_stock)
+      }
+    }
+    return required
+  }
+
   async function processPayment() {
     if (cart.length === 0) { showToast('No items in cart.'); return }
 
@@ -90,6 +165,18 @@ export default function POSPage() {
     if (!chargeToBooking) {
       const paymentError = paymentValidationMessage(paymentMethod, subtotal, amountTendered)
       if (paymentError) { showToast(paymentError); return }
+    }
+
+    // Block checkout if any recipe-linked ingredient doesn't have enough stock.
+    const required = getStockRequirements()
+    const insufficient = Object.values(required).filter(r => r.qty > r.available)
+    if (insufficient.length > 0) {
+      showToast(
+        `Not enough stock — ${insufficient.map(r =>
+          `${r.name} (need ${r.qty}${r.unit}, have ${r.available}${r.unit})`
+        ).join(', ')}`
+      )
+      return
     }
 
     setLoading(true)
@@ -123,6 +210,20 @@ export default function POSPage() {
           subtotal: c.price * c.qty,
         }))
       )
+
+      // Auto-deduct inventory stock for any recipe-linked ingredients consumed
+      // by this order (movement rows — actual current_stock updates the same
+      // way manual Stock Out does in the Inventory module).
+      const movementRows = Object.entries(required).map(([inventory_item_id, r]) => ({
+        item_id: inventory_item_id,
+        movement_type: 'out' as const,
+        quantity: r.qty,
+        reference: orderNumber,
+        notes: `POS sale — ${orderNumber}`,
+      }))
+      if (movementRows.length > 0) {
+        await supabase.from('inventory_movements').insert(movementRows)
+      }
 
       if (chargeToBooking) {
         // Insert one booking_addon per cart item (so checkout receipt itemizes them)
@@ -177,6 +278,7 @@ export default function POSPage() {
       setChargeToBooking('')
       setWalkInGuestName('')
       setAmountTendered(0)
+      load() // refresh inventory stock levels shown in the recipe editor
     } catch (err: any) {
       showToast('Error: ' + err.message)
     } finally {
@@ -209,14 +311,115 @@ export default function POSPage() {
     load()
   }
 
+  async function removeMenuItem(item: any) {
+    if (!confirm(`Delete "${item.name}"? This can't be undone.`)) return
+    const { error } = await supabase.from('menu_items').delete().eq('id', item.id)
+    if (error) {
+      // Likely a foreign-key conflict — this item has past orders tied to it.
+      if (error.code === '23503') {
+        showToast(`Can't delete "${item.name}" — it has past orders on record. Hide it instead to remove it from the POS.`)
+      } else {
+        showToast('Error: ' + error.message)
+      }
+      return
+    }
+    showToast(`${item.name} deleted.`)
+    if (editingItem?.id === item.id) { setEditingItem(null); setMenuForm({ name: '', price: 0, category_id: '', is_available: true }) }
+    load()
+  }
+
+  async function addIngredient() {
+    if (!editingItem) return
+    if (!ingredientForm.inventory_item_id || ingredientForm.quantity_per_unit <= 0) {
+      showToast('Select an inventory item and a valid quantity.'); return
+    }
+    setSavingIngredient(true)
+    const { error } = await supabase.from('menu_item_ingredients').insert({
+      menu_item_id: editingItem.id,
+      inventory_item_id: ingredientForm.inventory_item_id,
+      quantity_per_unit: ingredientForm.quantity_per_unit,
+    })
+    setSavingIngredient(false)
+    if (error) { showToast('Error: ' + error.message); return }
+    setIngredientForm({ inventory_item_id: '', quantity_per_unit: 1 })
+    load()
+  }
+
+  async function removeIngredient(id: string) {
+    const { error } = await supabase.from('menu_item_ingredients').delete().eq('id', id)
+    if (error) { showToast('Error: ' + error.message); return }
+    load()
+  }
+
+  // Direct Stock (merchandise — t-shirts, bottled water, souvenirs). Always
+  // exactly 1:1 with the inventory item, so there's no quantity to set —
+  // just pick the item and link it.
+  async function setDirectStockLink() {
+    if (!editingItem || !directStockForm) return
+    setSavingDirectStock(true)
+    const { error } = await (supabase as any)
+      .from('menu_items')
+      .update({ direct_inventory_item_id: directStockForm })
+      .eq('id', editingItem.id)
+    setSavingDirectStock(false)
+    if (error) { showToast('Error: ' + error.message); return }
+    setDirectStockForm('')
+    load()
+  }
+
+  async function removeDirectStockLink() {
+    if (!editingItem) return
+    const { error } = await (supabase as any)
+      .from('menu_items')
+      .update({ direct_inventory_item_id: null })
+      .eq('id', editingItem.id)
+    if (error) { showToast('Error: ' + error.message); return }
+    load()
+  }
+
   async function saveCategory(e: React.FormEvent) {
     e.preventDefault()
     if (!catForm.trim()) return
-    const { error } = await supabase.from('menu_categories').insert({ name: catForm.trim() })
-    if (error) { showToast('Error: ' + error.message); return }
-    showToast(`Category "${catForm}" added.`)
+    if (editingCat) {
+      const { error } = await supabase.from('menu_categories').update({ name: catForm.trim() }).eq('id', editingCat.id)
+      if (error) { showToast('Error: ' + error.message); return }
+      showToast(`Category renamed to "${catForm}".`)
+      setEditingCat(null)
+      setCatForm('')
+      load()
+    } else {
+      const { error } = await supabase.from('menu_categories').insert({ name: catForm.trim() })
+      if (error) { showToast('Error: ' + error.message); return }
+      showToast(`Category "${catForm}" added.`)
+      setCatForm('')
+      setShowCatForm(false)
+      load()
+    }
+  }
+
+  function openEditCategory(cat: { id: string; name: string }) {
+    setEditingCat(cat)
+    setCatForm(cat.name)
+    setShowCatForm(true)
+  }
+
+  function cancelEditCategory() {
+    setEditingCat(null)
     setCatForm('')
     setShowCatForm(false)
+  }
+
+  async function deleteCategory(cat: { id: string; name: string }) {
+    const inUse = items.some(i => i.category_id === cat.id)
+    if (inUse) {
+      showToast(`Can't delete "${cat.name}" — still used by one or more menu items. Move those items to another category first.`)
+      return
+    }
+    if (!confirm(`Delete category "${cat.name}"?`)) return
+    const { error } = await supabase.from('menu_categories').delete().eq('id', cat.id)
+    if (error) { showToast('Error: ' + error.message); return }
+    showToast(`Category "${cat.name}" deleted.`)
+    if (editingCat?.id === cat.id) cancelEditCategory()
     load()
   }
 
@@ -297,21 +500,123 @@ export default function POSPage() {
               </div>
             </form>
 
+            {/* Direct Stock — for merchandise (t-shirts, bottled water, souvenirs).
+                Always exactly 1:1, one pick, no quantity to configure. Hidden once
+                a Recipe exists for this item, so the two can't both be set up. */}
+            {editingItem && (recipes[editingItem.id] ?? []).length === 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <div className="text-sm font-medium text-gray-700 mb-1">Direct Stock (optional)</div>
+                <div className="text-xs text-gray-400 mb-2">
+                  For merchandise, not food — 1 pc deducted per order. Use this instead of Recipe below.
+                </div>
+
+                {directStock[editingItem.id] ? (
+                  <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-xs">
+                    <span className="text-gray-700">
+                      📦 {directStock[editingItem.id].name} — 1 {directStock[editingItem.id].unit} / order
+                    </span>
+                    <button onClick={removeDirectStockLink} className="text-red-400 hover:text-red-600">
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <select value={directStockForm}
+                      onChange={e => setDirectStockForm(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white">
+                      <option value="">-- Inventory item --</option>
+                      {inventoryItems.map(i => (
+                        <option key={i.id} value={i.id}>{i.name} ({i.current_stock} {i.unit} left)</option>
+                      ))}
+                    </select>
+                    <button onClick={setDirectStockLink} disabled={savingDirectStock || !directStockForm}
+                      className="px-3 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-xs rounded-lg whitespace-nowrap">
+                      + Link
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Recipe / ingredients — optional. Links this menu item to Inventory
+                so the POS can check stock and auto-deduct on sale. Only shown
+                once the item exists (editingItem set), and hidden once a Direct
+                Stock link exists so the two can't both be set up. */}
+            {editingItem && !directStock[editingItem.id] && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <div className="text-sm font-medium text-gray-700 mb-1">Recipe (optional)</div>
+                <div className="text-xs text-gray-400 mb-2">
+                  For food with more than one ingredient — link each raw material and how much it uses per order.
+                </div>
+
+                {(recipes[editingItem.id] ?? []).length > 0 && (
+                  <div className="space-y-1 mb-3">
+                    {(recipes[editingItem.id] ?? []).map(r => (
+                      <div key={r.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-xs">
+                        <span className="text-gray-700">
+                          {r.inventory_items?.name ?? 'Item'} — {r.quantity_per_unit} {r.inventory_items?.unit ?? ''} / order
+                        </span>
+                        <button onClick={() => removeIngredient(r.id)} className="text-red-400 hover:text-red-600">
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <select value={ingredientForm.inventory_item_id}
+                    onChange={e => setIngredientForm(p => ({ ...p, inventory_item_id: e.target.value }))}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white">
+                    <option value="">-- Inventory item --</option>
+                    {inventoryItems.map(i => (
+                      <option key={i.id} value={i.id}>{i.name} ({i.current_stock} {i.unit} left)</option>
+                    ))}
+                  </select>
+                  <input type="number" min={0} step="any" value={ingredientForm.quantity_per_unit}
+                    onChange={e => setIngredientForm(p => ({ ...p, quantity_per_unit: parseFloat(e.target.value) || 0 }))}
+                    placeholder="Qty"
+                    className="w-20 px-2 py-2 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white" />
+                  <button onClick={addIngredient} disabled={savingIngredient}
+                    className="px-3 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-xs rounded-lg whitespace-nowrap">
+                    + Add
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="mt-4 pt-4 border-t border-gray-100">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-medium text-gray-700">Categories</div>
-                <button onClick={() => setShowCatForm(!showCatForm)} className="text-xs text-blue-600 hover:text-blue-800">+ Add</button>
+                {!showCatForm && (
+                  <button onClick={() => { setEditingCat(null); setCatForm(''); setShowCatForm(true) }}
+                    className="text-xs text-blue-600 hover:text-blue-800">+ Add</button>
+                )}
               </div>
               {showCatForm && (
                 <form onSubmit={saveCategory} className="flex gap-2 mb-2">
                   <input value={catForm} onChange={e => setCatForm(e.target.value)} placeholder="Category name"
                     className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
-                  <button type="submit" className="px-3 py-1.5 bg-blue-700 text-white text-xs rounded-lg">Save</button>
+                  <button type="submit" className="px-3 py-1.5 bg-blue-700 text-white text-xs rounded-lg whitespace-nowrap">
+                    {editingCat ? 'Rename' : 'Save'}
+                  </button>
+                  <button type="button" onClick={cancelEditCategory}
+                    className="px-3 py-1.5 border border-gray-200 text-gray-600 text-xs rounded-lg">
+                    Cancel
+                  </button>
                 </form>
               )}
               <div className="space-y-1">
-                {allCategories.map(c => (
-                  <div key={c.id} className="text-sm text-gray-600 px-2 py-1 bg-gray-50 rounded">{c.name}</div>
+                {allCategories.length === 0 ? (
+                  <div className="text-xs text-gray-400 text-center py-2">No categories yet.</div>
+                ) : allCategories.map(c => (
+                  <div key={c.id} className="flex items-center justify-between text-sm text-gray-600 px-2 py-1 bg-gray-50 rounded">
+                    <span>{c.name}</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => openEditCategory(c)} className="text-xs text-gray-400 hover:text-gray-600">Edit</button>
+                      <button onClick={() => deleteCategory(c)} className="text-xs text-red-400 hover:text-red-600">Delete</button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -345,6 +650,8 @@ export default function POSPage() {
                         className="text-xs text-gray-400 hover:text-gray-600">Edit</button>
                       <button onClick={() => toggleAvailable(item)}
                         className="text-xs text-gray-400 hover:text-gray-600">{item.is_available ? 'Hide' : 'Show'}</button>
+                      <button onClick={() => removeMenuItem(item)}
+                        className="text-xs text-red-400 hover:text-red-600">Delete</button>
                     </td>
                   </tr>
                 ))}

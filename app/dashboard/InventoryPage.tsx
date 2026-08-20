@@ -20,6 +20,12 @@ export default function InventoryPage() {
     name: '', category_id: '', unit: 'pcs', current_stock: 0, reorder_level: 10,
   })
 
+  // Category manager (add / edit / delete) — separate modal, opened from the
+  // item form's Category field or the "Manage Categories" button up top.
+  const [showCatManager, setShowCatManager] = useState(false)
+  const [editingCat, setEditingCat] = useState<{ id: string; name: string } | null>(null)
+  const [catForm, setCatForm] = useState('')
+
   async function load() {
     setLoading(true)
     const [{ data: itemData }, { data: catData }] = await Promise.all([
@@ -65,6 +71,49 @@ export default function InventoryPage() {
     setShowItemForm(true)
   }
 
+  async function saveCategory() {
+    if (!catForm.trim()) return
+    if (editingCat) {
+      const { error } = await supabase.from('inventory_categories').update({ name: catForm.trim() }).eq('id', editingCat.id)
+      if (error) { showToast('Error: ' + error.message); return }
+      showToast(`Category renamed to "${catForm}".`)
+      setEditingCat(null)
+      setCatForm('')
+      load()
+    } else {
+      const { data, error } = await supabase.from('inventory_categories').insert({ name: catForm.trim() }).select().single()
+      if (error) { showToast('Error: ' + error.message); return }
+      showToast(`Category "${catForm}" added.`)
+      setCatForm('')
+      await load()
+      // Auto-select the newly created category if the item form is open.
+      if (data && showItemForm) setItemForm(p => ({ ...p, category_id: data.id }))
+    }
+  }
+
+  function openEditCategory(cat: { id: string; name: string }) {
+    setEditingCat(cat)
+    setCatForm(cat.name)
+  }
+
+  function cancelEditCategory() {
+    setEditingCat(null)
+    setCatForm('')
+  }
+
+  async function deleteCategory(cat: { id: string; name: string }) {
+    const inUse = items.some(i => i.category_id === cat.id)
+    if (inUse) {
+      showToast(`Can't delete "${cat.name}" — still used by one or more inventory items. Move those items to another category first.`)
+      return
+    }
+    if (!confirm(`Delete category "${cat.name}"?`)) return
+    const { error } = await supabase.from('inventory_categories').delete().eq('id', cat.id)
+    if (error) { showToast('Error: ' + error.message); return }
+    showToast(`Category "${cat.name}" deleted.`)
+    load()
+  }
+
   async function createItem(e: React.FormEvent) {
     e.preventDefault()
     if (!itemForm.name) { showToast('Item name is required.'); return }
@@ -95,9 +144,15 @@ export default function InventoryPage() {
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm font-medium text-gray-700">{items.length} Items</div>
         {canManage && (
-          <button onClick={openNewItem} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
-            + Add Item
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => { setShowCatManager(true); setEditingCat(null); setCatForm('') }}
+              className="px-3 py-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg">
+              Manage Categories
+            </button>
+            <button onClick={openNewItem} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg">
+              + Add Item
+            </button>
+          </div>
         )}
       </div>
 
@@ -131,19 +186,23 @@ export default function InventoryPage() {
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${status.cls}`}>{status.label}</span>
                     </td>
                     <td className="px-4 py-2.5">
-                      <button onClick={() => { setStockModal(i); setStockType('in') }}
-                        className="px-2.5 py-1 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg mr-1">
-                        Stock In
-                      </button>
-                      <button onClick={() => { setStockModal(i); setStockType('out') }}
-                        className="px-2.5 py-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg mr-1">
-                        Stock Out
-                      </button>
-                      {canManage && (
-                        <button onClick={() => deactivateItem(i)}
-                          className="px-2.5 py-1 text-red-400 hover:text-red-600 text-xs">
-                          Remove
-                        </button>
+                      {canManage ? (
+                        <>
+                          <button onClick={() => { setStockModal(i); setStockType('in') }}
+                            className="px-2.5 py-1 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg mr-1">
+                            Stock In
+                          </button>
+                          <button onClick={() => { setStockModal(i); setStockType('out') }}
+                            className="px-2.5 py-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs rounded-lg mr-1">
+                            Stock Out
+                          </button>
+                          <button onClick={() => deactivateItem(i)}
+                            className="px-2.5 py-1 text-red-400 hover:text-red-600 text-xs">
+                            Remove
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
                       )}
                     </td>
                   </tr>
@@ -192,7 +251,13 @@ export default function InventoryPage() {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Category</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs text-gray-500">Category</label>
+                <button type="button" onClick={() => { setShowCatManager(true); setEditingCat(null); setCatForm('') }}
+                  className="text-xs text-blue-600 hover:text-blue-800">
+                  + Add new
+                </button>
+              </div>
               <select value={itemForm.category_id} onChange={e => setItemForm(p => ({ ...p, category_id: e.target.value }))}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white">
                 <option value="">-- Select --</option>
@@ -225,6 +290,50 @@ export default function InventoryPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {showCatManager && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => { setShowCatManager(false); cancelEditCategory() }}>
+          <div className="bg-white rounded-xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="text-sm font-medium text-gray-700 mb-3">Manage Categories</div>
+
+            <div className="flex gap-2 mb-3">
+              <input value={catForm} onChange={e => setCatForm(e.target.value)}
+                placeholder="Category name"
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+              <button onClick={saveCategory}
+                className="px-3 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg whitespace-nowrap">
+                {editingCat ? 'Rename' : '+ Add'}
+              </button>
+              {editingCat && (
+                <button onClick={cancelEditCategory}
+                  className="px-3 py-2 border border-gray-200 text-gray-600 text-xs rounded-lg">
+                  Cancel
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {categories.length === 0 ? (
+                <div className="text-xs text-gray-400 text-center py-4">No categories yet.</div>
+              ) : categories.map(c => (
+                <div key={c.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5 text-sm">
+                  <span className="text-gray-700">{c.name}</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => openEditCategory(c)} className="text-xs text-gray-400 hover:text-gray-600">Edit</button>
+                    <button onClick={() => deleteCategory(c)} className="text-xs text-red-400 hover:text-red-600">Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button onClick={() => { setShowCatManager(false); cancelEditCategory() }}
+              className="w-full mt-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">
+              Close
+            </button>
+          </div>
         </div>
       )}
     </div>

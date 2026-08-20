@@ -31,6 +31,7 @@ export default function CottagesPage() {
   const [toast, setToast] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<any>(null)
+  const [search, setSearch] = useState('')
   const [form, setForm] = useState({
     cottage_code: '', name: '', type: 'open', capacity: 8,
     day_rate: 0, overnight_rate: 0,
@@ -105,6 +106,13 @@ export default function CottagesPage() {
     return acc
   }, {})
 
+  const q = search.trim().toLowerCase()
+  const filteredCottages = cottages.filter(c => {
+    if (!q) return true
+    return [c.cottage_code, c.name, typeLabel[c.type] ?? c.type, c.status]
+      .some(v => v && String(v).toLowerCase().includes(q))
+  })
+
   return (
     <div>
       {toast && (
@@ -131,15 +139,33 @@ export default function CottagesPage() {
         </div>
       </div>
 
+      <div className="relative mb-4 max-w-sm">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+        </svg>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search code, name, type..."
+          className="w-full pl-9 pr-8 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
+        />
+        {search && (
+          <button onClick={() => setSearch('')}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
+            ✕
+          </button>
+        )}
+      </div>
+
       {loading ? (
         <div className="text-center py-12 text-gray-400 text-sm">Loading...</div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {cottages.length === 0 ? (
+          {filteredCottages.length === 0 ? (
             <div className="col-span-full text-center py-12 text-gray-400 text-sm">
-              No cottages found.
+              {q ? 'No cottages match your search.' : 'No cottages found.'}
             </div>
-          ) : cottages.map(c => (
+          ) : filteredCottages.map(c => (
             <div key={c.id} className="bg-white border border-gray-100 rounded-xl p-3">
               <div className="flex items-start justify-between">
                 <div className="text-lg font-semibold text-gray-800">{c.cottage_code}</div>

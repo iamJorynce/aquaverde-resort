@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
   if (!profile) return unauthorized()
-  if (!requireRole(profile.role, ['super_admin','resort_owner','front_desk']))
+  if (!requireRole(profile.role, ['super_admin','resort_owner']))
     return forbidden()
 
   const body = await request.json()

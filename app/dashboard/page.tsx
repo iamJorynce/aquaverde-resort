@@ -147,6 +147,24 @@ export default function DashboardPage() {
     setPendingHousekeepingCount(count ?? 0)
   }
 
+  // Inventory had no badge/notification either — same idea as Housekeeping,
+  // but "pending" here means low stock: current_stock <= reorder_level.
+  // That's a column-to-column comparison, which PostgREST can't filter
+  // server-side, so (same as InventoryPage/app/api/inventory) fetch active
+  // items and count client-side.
+  const [lowStockCount, setLowStockCount] = useState(0)
+
+  async function loadLowStockCount() {
+    const { data } = await supabase
+      .from('inventory_items')
+      .select('current_stock, reorder_level')
+      .eq('is_active', true)
+    const count = (data ?? []).filter(
+      (item: any) => (item.current_stock ?? 0) <= (item.reorder_level ?? 0)
+    ).length
+    setLowStockCount(count)
+  }
+
   // The "unprocessed" banner combines all sources — POS/day-use
   // transactions plus pending bookings, check-in/check-out, and
   // housekeeping — so it needs to re-derive whenever any one changes.
@@ -156,9 +174,10 @@ export default function DashboardPage() {
       pendingBookingsCount > 0 ||
       pendingCheckinCount > 0 ||
       pendingCheckoutCount > 0 ||
-      pendingHousekeepingCount > 0
+      pendingHousekeepingCount > 0 ||
+      lowStockCount > 0
     setHasUnprocessedTransactions(hasUnprocessed)
-  }, [transactionCounts, pendingBookingsCount, pendingCheckinCount, pendingCheckoutCount, pendingHousekeepingCount])
+  }, [transactionCounts, pendingBookingsCount, pendingCheckinCount, pendingCheckoutCount, pendingHousekeepingCount, lowStockCount])
 
   // Shift prompt — shown to cashier/front_desk on login if no active shift
   const [showShiftPrompt, setShowShiftPrompt] = useState(false)
@@ -211,6 +230,8 @@ export default function DashboardPage() {
         return pendingBookingsCount
       case 'housekeeping':
         return pendingHousekeepingCount
+      case 'inventory':
+        return lowStockCount
       default:
         return 0
     }
@@ -265,6 +286,7 @@ export default function DashboardPage() {
       await loadPendingBookingsCount()
       await loadPendingCheckInOutCounts()
       await loadPendingHousekeepingCount()
+      await loadLowStockCount()
     }
     load()
 
@@ -304,10 +326,23 @@ export default function DashboardPage() {
       )
       .subscribe()
 
+    // Keep the Inventory nav badge in sync whenever stock changes (Stock
+    // In/Out updates current_stock directly on inventory_items) or an item
+    // is added/deactivated/reorder_level changed.
+    const inventorySubscription = supabase
+      .channel('inventory-badge')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'inventory_items' },
+        () => loadLowStockCount()
+      )
+      .subscribe()
+
     return () => {
       subscription.unsubscribe()
       bookingsSubscription.unsubscribe()
       housekeepingSubscription.unsubscribe()
+      inventorySubscription.unsubscribe()
     }
   }, [])
 
@@ -370,6 +405,7 @@ export default function DashboardPage() {
                 {pendingCheckinCount > 0 && <div>• Check-in: {pendingCheckinCount} pending</div>}
                 {pendingCheckoutCount > 0 && <div>• Check-out: {pendingCheckoutCount} pending</div>}
                 {pendingHousekeepingCount > 0 && <div>• Housekeeping: {pendingHousekeepingCount} pending</div>}
+                {lowStockCount > 0 && <div>• Inventory: {lowStockCount} low stock</div>}
                 {transactionCounts.dayuse > 0 && <div>• Day Use: {transactionCounts.dayuse} pending</div>}
                 {pendingBookingsCount > 0 && <div>• Bookings: {pendingBookingsCount} pending</div>}
               </div>
@@ -443,7 +479,7 @@ export default function DashboardPage() {
       {/* SIDEBAR */}
       <aside className={`
         fixed md:static inset-y-0 left-0 z-30 w-56 bg-white border-r border-gray-100
-        flex flex-col transition-transform duration-200
+        flex flex-col transition-transform duration-200 print:hidden
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
         {/* Logo */}
@@ -502,7 +538,7 @@ export default function DashboardPage() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Topbar */}
-        <header className="bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3 flex-shrink-0">
+        <header className="bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3 flex-shrink-0 print:hidden">
           <button className="md:hidden text-gray-500" onClick={() => setSidebarOpen(true)}>☰</button>
           <h1 className="text-sm font-semibold text-gray-800 flex-1 capitalize">
             {NAV.find(n => n.id === page)?.label ?? 'Dashboard'}

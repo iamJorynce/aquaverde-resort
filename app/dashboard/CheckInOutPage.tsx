@@ -54,6 +54,7 @@ export default function CheckInOutPage() {
   const supabase = createClient()
 
   const [tab, setTab] = useState<'in' | 'active' | 'out' | 'dayuse'>('in')
+  const [search, setSearch] = useState('')
   const [pendingCheckins, setPendingCheckins]   = useState<any[]>([])
   const [activeStays, setActiveStays]           = useState<any[]>([])
   const [pendingCheckouts, setPendingCheckouts] = useState<any[]>([])
@@ -577,6 +578,29 @@ export default function CheckInOutPage() {
   const activeGroups    = groupRows(activeStays)
   const checkoutGroups  = groupRows(pendingCheckouts)
 
+  // Search matches booking #/group #, guest name, and room/cottage label.
+  const q = search.trim().toLowerCase()
+  const matchesGroupSearch = (g: BookingGroup) => {
+    if (!q) return true
+    return [
+      g.primary.booking_number,
+      g.primary.group_number,
+      (g.primary.guests as any)?.full_name,
+      (g.primary.guests as any)?.phone,
+      g.roomLabel,
+    ].some(v => v && String(v).toLowerCase().includes(q))
+  }
+  const matchesDayUseSearch = (b: any) => {
+    if (!q) return true
+    const guestName = b.special_requests?.replace('Day Use Guest: ', '').split('\n')[0] || ''
+    return [b.booking_number, guestName].some(v => v && String(v).toLowerCase().includes(q))
+  }
+
+  const filteredCheckinGroups  = checkinGroups.filter(matchesGroupSearch)
+  const filteredActiveGroups   = activeGroups.filter(matchesGroupSearch)
+  const filteredCheckoutGroups = checkoutGroups.filter(matchesGroupSearch)
+  const filteredDayUse         = activeDayUse.filter(matchesDayUseSearch)
+
   return (
     <div>
       {toast && (
@@ -599,6 +623,24 @@ export default function CheckInOutPage() {
         ))}
       </div>
 
+      <div className="relative mb-4 max-w-sm">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+        </svg>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search booking #, guest, room/cottage..."
+          className="w-full pl-9 pr-8 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
+        />
+        {search && (
+          <button onClick={() => setSearch('')}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
+            ✕
+          </button>
+        )}
+      </div>
+
       {loading ? (
         <div className="text-center py-12 text-gray-400 text-sm">Loading...</div>
       ) : (
@@ -619,9 +661,9 @@ export default function CheckInOutPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {checkinGroups.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">No pending check-ins.</td></tr>
-                  ) : checkinGroups.map(g => (
+                  {filteredCheckinGroups.length === 0 ? (
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-xs">{q ? 'No pending check-ins match your search.' : 'No pending check-ins.'}</td></tr>
+                  ) : filteredCheckinGroups.map(g => (
                     <tr key={g.key} className="border-b border-gray-50 hover:bg-gray-50">
                       <td className="px-4 py-2.5 font-medium text-blue-700">
                         {g.items.length > 1 ? g.primary.group_number : g.primary.booking_number}
@@ -684,9 +726,9 @@ export default function CheckInOutPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {activeGroups.length === 0 ? (
-                      <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-xs">No guests currently checked in.</td></tr>
-                    ) : activeGroups.map(g => (
+                    {filteredActiveGroups.length === 0 ? (
+                      <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-xs">{q ? 'No active stays match your search.' : 'No guests currently checked in.'}</td></tr>
+                    ) : filteredActiveGroups.map(g => (
                       <tr key={g.key} className="border-b border-gray-50 hover:bg-gray-50">
                         <td className="px-4 py-2.5 font-medium text-blue-700">
                           {g.items.length > 1 ? g.primary.group_number : g.primary.booking_number}
@@ -740,9 +782,9 @@ export default function CheckInOutPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {checkoutGroups.length === 0 ? (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">No guests due for check-out today.</td></tr>
-                  ) : checkoutGroups.map(g => {
+                  {filteredCheckoutGroups.length === 0 ? (
+                    <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-xs">{q ? 'No check-outs match your search.' : 'No guests due for check-out today.'}</td></tr>
+                  ) : filteredCheckoutGroups.map(g => {
                     const balance = groupBalance(g)
                     return (
                       <tr key={g.key} className="border-b border-gray-50 hover:bg-gray-50">
@@ -804,13 +846,13 @@ export default function CheckInOutPage() {
                 )
               })()}
 
-              {activeDayUse.length === 0 ? (
+              {filteredDayUse.length === 0 ? (
                 <div className="text-center py-12 bg-white border border-gray-100 rounded-xl text-gray-400 text-sm">
-                  No active day use guests right now.
+                  {q ? 'No day use guests match your search.' : 'No active day use guests right now.'}
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {activeDayUse.map(b => {
+                  {filteredDayUse.map(b => {
                     const pax = (b.num_adults ?? 0) + (b.num_children ?? 0) + (b.num_seniors ?? 0) + (b.num_pwd ?? 0)
                     const guestName = b.special_requests?.replace('Day Use Guest: ', '').split('\n')[0] || b.booking_number
                     const hasUnreturnedEquipment = b.rentals.length > 0

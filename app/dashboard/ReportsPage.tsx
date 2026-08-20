@@ -193,8 +193,8 @@ export default function ReportsPage() {
 
   return (
     <div className="flex gap-4">
-      {/* Sidebar nav */}
-      <div className="w-44 flex-shrink-0">
+      {/* Sidebar nav — hidden when printing */}
+      <div className="w-44 flex-shrink-0 print:hidden">
         <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
           {NAV.map(n => (
             <button key={n.id} onClick={() => setSection(n.id)}
@@ -208,8 +208,17 @@ export default function ReportsPage() {
 
       {/* Main content */}
       <div className="flex-1 min-w-0">
-        {/* Date range filter — shown for all sections */}
-        <div className="flex items-center gap-3 mb-4 flex-wrap">
+        {/* Print-only header — shows report title, date range, and when it was printed */}
+        <div className="hidden print:block mb-4">
+          <div className="text-lg font-semibold text-gray-900">AquaVerde Beach Resort</div>
+          <div className="text-sm text-gray-700">{NAV.find(n => n.id === section)?.label}</div>
+          <div className="text-xs text-gray-500">
+            {formatDate(from)} – {formatDate(to)} · Printed {new Date().toLocaleString('en-PH')}
+          </div>
+        </div>
+
+        {/* Date range filter + Print button — hidden when printing */}
+        <div className="flex items-center gap-3 mb-4 flex-wrap print:hidden">
           <input type="date" value={from} onChange={e => setFrom(e.target.value)}
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
           <span className="text-gray-400 text-sm">to</span>
@@ -220,6 +229,10 @@ export default function ReportsPage() {
               placeholder="Filter by action..."
               className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white w-44" />
           )}
+          <button onClick={() => window.print()}
+            className="ml-auto px-3 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm rounded-lg flex items-center gap-1.5">
+            🖨️ Print Report
+          </button>
         </div>
 
         {loading ? (
