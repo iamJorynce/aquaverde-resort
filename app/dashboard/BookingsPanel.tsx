@@ -71,6 +71,22 @@ export default function BookingsPanel() {
 
   useEffect(() => { load() }, [])
 
+  // Auto-refresh whenever any booking row changes — new online booking
+  // submissions, staff approving/rejecting elsewhere, etc. — so front
+  // desk sees new pending bookings appear without manually refreshing.
+  useEffect(() => {
+    const channel = supabase
+      .channel('bookings-panel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings' },
+        () => load()
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3500) }
 
   async function approveGroup(group: any) {
@@ -114,7 +130,27 @@ export default function BookingsPanel() {
       payment_method: group.primary.payment_method_used || 'gcash',
     })
 
-    showToast(`${group.roomLabels.join(', ')} confirmed. ₱${depositAmount.toLocaleString()} deposit credited.`)
+    // Fire off the guest's confirmation email/SMS now that payment is
+    // verified. One call per room in the group, since the edge function
+    // builds its email around a single booking row. Best-effort: a failed
+    // send here shouldn't undo the confirmation staff just made — the
+    // booking stays confirmed either way, we just surface a toast. Only
+    // the email channel matters for this toast — an SMS-only failure
+    // (e.g. SMS provider not yet approved) shouldn't read as "email failed".
+    const notifyResults = await Promise.allSettled(
+      group.allBookings.map((b: any) =>
+        supabase.functions.invoke('send-booking-confirmation', { body: { booking_id: b.id } })
+      )
+    )
+    const emailFailed = notifyResults.some(r =>
+      r.status === 'rejected' || (r as any).value?.error || (r as any).value?.data?.failures?.email
+    )
+
+    showToast(
+      emailFailed
+        ? `${group.roomLabels.join(', ')} confirmed. ₱${depositAmount.toLocaleString()} deposit credited. (Confirmation email failed to send — check manually.)`
+        : `${group.roomLabels.join(', ')} confirmed. ₱${depositAmount.toLocaleString()} deposit credited. Confirmation email sent.`
+    )
     setApproving(null)
     load()
   }

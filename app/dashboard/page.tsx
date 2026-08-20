@@ -85,6 +85,81 @@ export default function DashboardPage() {
   })
   const [hasUnprocessedTransactions, setHasUnprocessedTransactions] = useState(false)
 
+  // Pending bookings awaiting staff approval — the "Bookings" nav badge
+  // reflects this, not transactionCounts.booking. Nothing in the app ever
+  // creates a transaction row with txn_type='booking' (online/staff
+  // confirmation only touches the bookings table + a reservation_fee
+  // transaction), so that counter could never clear once non-zero — it
+  // was reading a source that no confirm action ever updates.
+  const [pendingBookingsCount, setPendingBookingsCount] = useState(0)
+
+  async function loadPendingBookingsCount() {
+    const { count } = await supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+    setPendingBookingsCount(count ?? 0)
+  }
+
+  // Same problem as bookings: "Check-in/Out" was counting
+  // transactions.txn_type IN ('checkin','checkout'), but check-in/check-out
+  // never create a transaction with those types (check-in records a
+  // 'deposit' transaction, check-out records 'room'/'refund' — see
+  // app/api/checkin/route.ts and app/api/checkout/route.ts). The real
+  // pending counts live on the bookings table, matching what
+  // CheckInOutPage.tsx itself queries: awaiting check-in = status
+  // pending/confirmed with check_in_date already due; awaiting check-out =
+  // checked_in with check_out_date already due. Day-use bookings have
+  // their own module/badge, so both exclude accommodation_type='day_use'.
+  const [pendingCheckinCount, setPendingCheckinCount] = useState(0)
+  const [pendingCheckoutCount, setPendingCheckoutCount] = useState(0)
+
+  async function loadPendingCheckInOutCounts() {
+    const today = new Date().toISOString().slice(0, 10)
+    const [{ count: checkinCount }, { count: checkoutCount }] = await Promise.all([
+      supabase.from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['pending', 'confirmed'])
+        .lte('check_in_date', today)
+        .not('accommodation_type', 'eq', 'day_use'),
+      supabase.from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'checked_in')
+        .lte('check_out_date', today)
+        .not('accommodation_type', 'eq', 'day_use'),
+    ])
+    setPendingCheckinCount(checkinCount ?? 0)
+    setPendingCheckoutCount(checkoutCount ?? 0)
+  }
+
+  // Housekeeping had no badge/notification at all before — this adds one,
+  // matching how HousekeepingPage.tsx itself defines "pending": tasks in
+  // housekeeping_tasks with status='pending' (not yet started; in_progress
+  // tasks are already being handled so they're excluded, same as the
+  // other modules only counting the not-yet-actioned state).
+  const [pendingHousekeepingCount, setPendingHousekeepingCount] = useState(0)
+
+  async function loadPendingHousekeepingCount() {
+    const { count } = await supabase
+      .from('housekeeping_tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+    setPendingHousekeepingCount(count ?? 0)
+  }
+
+  // The "unprocessed" banner combines all sources — POS/day-use
+  // transactions plus pending bookings, check-in/check-out, and
+  // housekeeping — so it needs to re-derive whenever any one changes.
+  useEffect(() => {
+    const hasUnprocessed =
+      Object.values(transactionCounts).some(count => count > 0) ||
+      pendingBookingsCount > 0 ||
+      pendingCheckinCount > 0 ||
+      pendingCheckoutCount > 0 ||
+      pendingHousekeepingCount > 0
+    setHasUnprocessedTransactions(hasUnprocessed)
+  }, [transactionCounts, pendingBookingsCount, pendingCheckinCount, pendingCheckoutCount, pendingHousekeepingCount])
+
   // Shift prompt — shown to cashier/front_desk on login if no active shift
   const [showShiftPrompt, setShowShiftPrompt] = useState(false)
   const [shiftOpeningFund, setShiftOpeningFund] = useState(0)
@@ -118,8 +193,6 @@ export default function DashboardPage() {
       })
 
       setTransactionCounts(counts)
-      const hasUnprocessed = Object.values(counts).some(count => count > 0)
-      setHasUnprocessedTransactions(hasUnprocessed)
     } catch (err) {
       console.error('Error loading transaction counts:', err)
     }
@@ -131,11 +204,13 @@ export default function DashboardPage() {
       case 'pos':
         return transactionCounts.pos
       case 'checkinout':
-        return transactionCounts.checkin + transactionCounts.checkout
+        return pendingCheckinCount + pendingCheckoutCount
       case 'dayuse':
         return transactionCounts.dayuse
       case 'bookings':
-        return transactionCounts.booking
+        return pendingBookingsCount
+      case 'housekeeping':
+        return pendingHousekeepingCount
       default:
         return 0
     }
@@ -187,6 +262,9 @@ export default function DashboardPage() {
 
       // ✨ NEW: Load transaction counts
       await loadTransactionCounts()
+      await loadPendingBookingsCount()
+      await loadPendingCheckInOutCounts()
+      await loadPendingHousekeepingCount()
     }
     load()
 
@@ -200,8 +278,36 @@ export default function DashboardPage() {
       )
       .subscribe()
 
+    // Keep the Bookings and Check-in/Out nav badges in sync whenever a
+    // booking's status changes (e.g. staff confirms/checks in/checks out
+    // in another tab), not just on this page's own initial load.
+    const bookingsSubscription = supabase
+      .channel('bookings-badge')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings' },
+        () => {
+          loadPendingBookingsCount()
+          loadPendingCheckInOutCounts()
+        }
+      )
+      .subscribe()
+
+    // Keep the Housekeeping nav badge in sync whenever a task is created,
+    // started, or completed elsewhere.
+    const housekeepingSubscription = supabase
+      .channel('housekeeping-badge')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'housekeeping_tasks' },
+        () => loadPendingHousekeepingCount()
+      )
+      .subscribe()
+
     return () => {
       subscription.unsubscribe()
+      bookingsSubscription.unsubscribe()
+      housekeepingSubscription.unsubscribe()
     }
   }, [])
 
@@ -261,10 +367,11 @@ export default function DashboardPage() {
               </div>
               <div className="mt-2 space-y-1 text-xs text-amber-700">
                 {transactionCounts.pos > 0 && <div>• POS: {transactionCounts.pos} pending</div>}
-                {transactionCounts.checkin > 0 && <div>• Check-in: {transactionCounts.checkin} pending</div>}
-                {transactionCounts.checkout > 0 && <div>• Check-out: {transactionCounts.checkout} pending</div>}
+                {pendingCheckinCount > 0 && <div>• Check-in: {pendingCheckinCount} pending</div>}
+                {pendingCheckoutCount > 0 && <div>• Check-out: {pendingCheckoutCount} pending</div>}
+                {pendingHousekeepingCount > 0 && <div>• Housekeeping: {pendingHousekeepingCount} pending</div>}
                 {transactionCounts.dayuse > 0 && <div>• Day Use: {transactionCounts.dayuse} pending</div>}
-                {transactionCounts.booking > 0 && <div>• Bookings: {transactionCounts.booking} pending</div>}
+                {pendingBookingsCount > 0 && <div>• Bookings: {pendingBookingsCount} pending</div>}
               </div>
             </div>
           </div>

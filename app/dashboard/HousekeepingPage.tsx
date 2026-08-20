@@ -49,6 +49,22 @@ export default function HousekeepingPage() {
 
   useEffect(() => { load() }, [])
 
+  // Auto-refresh the task list whenever a housekeeping task changes
+  // elsewhere (created, started, completed) so staff don't have to
+  // manually refresh to see new or updated tasks.
+  useEffect(() => {
+    const channel = supabase
+      .channel('housekeeping-page')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'housekeeping_tasks' },
+        () => load()
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
   function showToast(msg: string) {
     setToast(msg)
     setTimeout(() => setToast(''), 3000)
