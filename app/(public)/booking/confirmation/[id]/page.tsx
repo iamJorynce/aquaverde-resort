@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
@@ -8,7 +8,11 @@ export default async function ConfirmationPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const supabase = await createClient()
+  // Public visitors are never logged in, so the anon client is blocked by
+  // RLS on `bookings`/`guests` here too. This page is only reachable via an
+  // unguessable booking UUID (acts like a private link), so the service
+  // client is safe to use — same reasoning as the public booking POST route.
+  const supabase = createServiceClient()
 
   const { data: booking, error } = await supabase
     .from('bookings')
