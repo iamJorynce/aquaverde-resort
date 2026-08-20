@@ -307,9 +307,19 @@ total_amount: rl.amount,
 
     } catch (err: any) {
       const isDoubleBooking = err.message?.includes('no_overlapping_room_bookings') || err.code === '23P01'
-      setError(isDoubleBooking
+      let debugSuffix = ''
+      if (err.message?.includes('row-level security')) {
+        // TEMP DIAGNOSTIC — remove once the mobile RLS issue is confirmed
+        // fixed. Surfaces what auth state the client actually has at the
+        // moment of failure, since this only reproduces on mobile.
+        try {
+          const { data: sessionData } = await supabase.auth.getSession()
+          debugSuffix = ` [debug: session=${sessionData.session ? 'present' : 'none'}, role=${sessionData.session?.user?.role ?? 'anon'}, ua=${navigator.userAgent.slice(0, 60)}]`
+        } catch {}
+      }
+      setError((isDoubleBooking
         ? 'One of your selected rooms was just booked by someone else. Please go back and reselect.'
-        : (err.message || 'Something went wrong. Please try again.'))
+        : (err.message || 'Something went wrong. Please try again.')) + debugSuffix)
       setLoading(false)
       setUploading(false)
     }
