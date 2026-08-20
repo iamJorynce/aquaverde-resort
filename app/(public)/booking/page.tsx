@@ -199,6 +199,17 @@ function BookingPageContent() {
 
   function goToStep2() {
     setError('')
+    // Defense-in-depth: some mobile browsers' native date picker doesn't
+    // enforce the `min` attribute, so re-validate here regardless of what
+    // the picker allowed through.
+    if (form.check_in_date < today) {
+      setError('Check-in date cannot be in the past. Please pick a valid date.')
+      return
+    }
+    if (form.check_out_date <= form.check_in_date) {
+      setError('Check-out date must be after check-in date.')
+      return
+    }
     if (form.room_ids.length === 0) { setError('Please select at least one room.'); return }
     if (selectedRoomsCapacity < totalPax) {
       setError(`Selected room(s) only fit ${selectedRoomsCapacity} guest(s) — you need room for ${totalPax}. Please select more rooms.`)
@@ -208,6 +219,8 @@ function BookingPageContent() {
   }
 
   async function submitBooking() {
+    if (form.check_in_date < today) { setError('Check-in date cannot be in the past.'); return }
+    if (form.check_out_date <= form.check_in_date) { setError('Check-out date must be after check-in date.'); return }
     if (!form.full_name) { setError('Please enter your full name.'); return }
     if (!form.email && !form.phone) { setError('Please provide an email or phone number.'); return }
     if (!proofFile) { setError('Please upload your proof of payment.'); return }
