@@ -29,14 +29,37 @@ function BookingPageContent() {
   const [proofPreview, setProofPreview] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
 
-  const today    = new Date().toISOString().slice(0, 10)
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+  // Use device LOCAL date, not UTC — toISOString() shifts to UTC and can
+  // land on the wrong calendar day for PH users overnight (UTC+8).
+  function toLocalDateString(d: Date) {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  const today    = toLocalDateString(new Date())
+  const tomorrow = toLocalDateString(new Date(Date.now() + 86400000))
 
   // Compress image client-side before upload — targets ~300KB max
   async function compressImage(file: File): Promise<File> {
     return new Promise((resolve) => {
       const img = new Image()
       const url = URL.createObjectURL(file)
+
+      // Some mobile browsers (in-app webviews, unsupported formats like HEIC)
+      // never fire onload — without a fallback the caller hangs forever and
+      // the person can never submit. Bail out to the original file instead.
+      let settled = false
+      const finish = (result: File) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeoutId)
+        URL.revokeObjectURL(url)
+        resolve(result)
+      }
+      const timeoutId = setTimeout(() => finish(file), 6000)
+
+      img.onerror = () => finish(file)
       img.onload = () => {
         const MAX_SIZE = 1200  // max width/height in px
         const MAX_BYTES = 300 * 1024  // 300KB target
@@ -48,24 +71,35 @@ function BookingPageContent() {
           height = Math.round(height * ratio)
         }
 
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(img, 0, 0, width, height)
-        URL.revokeObjectURL(url)
+        let canvas: HTMLCanvasElement
+        let ctx: CanvasRenderingContext2D | null
+        try {
+          canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          ctx = canvas.getContext('2d')
+          if (!ctx) { finish(file); return }
+          ctx.drawImage(img, 0, 0, width, height)
+        } catch {
+          finish(file)
+          return
+        }
 
         // Try quality 0.8 first, drop to 0.6 if still too big
-        canvas.toBlob(blob => {
-          if (!blob) { resolve(file); return }
-          if (blob.size <= MAX_BYTES) {
-            resolve(new File([blob], 'proof.jpg', { type: 'image/jpeg' }))
-          } else {
-            canvas.toBlob(blob2 => {
-              resolve(new File([blob2 ?? blob], 'proof.jpg', { type: 'image/jpeg' }))
-            }, 'image/jpeg', 0.6)
-          }
-        }, 'image/jpeg', 0.8)
+        try {
+          canvas.toBlob(blob => {
+            if (!blob) { finish(file); return }
+            if (blob.size <= MAX_BYTES) {
+              finish(new File([blob], 'proof.jpg', { type: 'image/jpeg' }))
+            } else {
+              canvas.toBlob(blob2 => {
+                finish(new File([blob2 ?? blob], 'proof.jpg', { type: 'image/jpeg' }))
+              }, 'image/jpeg', 0.6)
+            }
+          }, 'image/jpeg', 0.8)
+        } catch {
+          finish(file)
+        }
       }
       img.src = url
     })
@@ -91,12 +125,16 @@ function BookingPageContent() {
     (new Date(form.check_out_date).getTime() - new Date(form.check_in_date).getTime()) / 86400000
   ))
 
-  const roomLines = selectedRooms.map(r => ({
-    id: r.id,
-    label: `${r.room_types_config?.name} (Room ${r.room_number})`,
-    rate: r.room_types_config?.base_rate ?? 0,
-    amount: (r.room_types_config?.base_rate ?? 0) * nights,
-  }))
+  const roomLines = selectedRooms.map(r => {
+    const sameTypeRooms = rooms.filter(x => x.room_type_id === r.room_type_id)
+    const optionNumber = sameTypeRooms.findIndex(x => x.id === r.id) + 1
+    return {
+      id: r.id,
+      label: `${r.room_types_config?.name}${sameTypeRooms.length > 1 ? ` — Option ${optionNumber}` : ''}`,
+      rate: r.room_types_config?.base_rate ?? 0,
+      amount: (r.room_types_config?.base_rate ?? 0) * nights,
+    }
+  })
   const subtotal = roomLines.reduce((s, l) => s + l.amount, 0)
   // Reservation fee = 50% of the ENTIRE bill (all rooms, all nights combined)
   const reservationFee = Math.ceil(subtotal * 0.5)
@@ -125,17 +163,28 @@ function BookingPageContent() {
     // NOTE: only valid booking_status enum values here — pending, confirmed,
     // checked_in are the "active/blocking" statuses. ('reserved' is NOT a
     // valid enum value and must never appear in this filter.)
-    const { data: overlappingBookings } = await supabase
-      .from('bookings')
+    const { data: overlappingBookings, error: overlapError } = await supabase
+      .from('vw_room_booking_ranges')
       .select('room_id')
-      .in('status', ['pending', 'confirmed', 'checked_in'])
       .not('room_id', 'is', null)
       .lt('check_in_date', form.check_out_date)
       .gt('check_out_date', form.check_in_date)
 
+    // Fail CLOSED, not open: if we can't verify which rooms are booked
+    // (e.g. an RLS permission error), never fall back to "show everything
+    // as available" — that risks double-booking a room that's taken.
+    if (overlapError) {
+      console.error('Availability check failed:', overlapError.message)
+      setRooms([])
+      setError('Unable to check room availability right now. Please refresh and try again.')
+      setCheckingAvail(false)
+      return
+    }
+
     const bookedRoomIds = new Set((overlappingBookings ?? []).map(b => b.room_id))
     const availableForDates = allRooms.filter(r => !bookedRoomIds.has(r.id))
 
+    setError('')
     setRooms(availableForDates)
     setForm(p => ({ ...p, room_ids: p.room_ids.filter(id => availableForDates.some(r => r.id === id)) }))
     setCheckingAvail(false)
@@ -169,13 +218,18 @@ function BookingPageContent() {
 
     try {
       // Re-verify availability right before submitting
-      const { data: freshOverlaps } = await supabase
-        .from('bookings')
+      const { data: freshOverlaps, error: freshOverlapError } = await supabase
+        .from('vw_room_booking_ranges')
         .select('room_id')
-        .in('status', ['pending', 'confirmed', 'checked_in'])
         .in('room_id', form.room_ids)
         .lt('check_in_date', form.check_out_date)
         .gt('check_out_date', form.check_in_date)
+
+      // Fail closed: if we can't verify, don't let the booking through —
+      // that's how a room ends up double-booked.
+      if (freshOverlapError) {
+        throw new Error('Unable to verify room availability. Please try again.')
+      }
 
       if (freshOverlaps && freshOverlaps.length > 0) {
         setError('One of your selected rooms was just booked by someone else. Please go back and reselect.')
@@ -353,14 +407,22 @@ total_amount: rl.amount,
                         const cap = r.room_types_config?.max_capacity ?? 0
                         const tooSmallAlone = cap < totalPax && form.room_ids.length === 0
                         const checked = form.room_ids.includes(r.id)
+                        // Guests never need the literal room number — it's
+                        // operational info, not something they should see
+                        // or reference before check-in. Show a stable,
+                        // anonymous option number per room type instead.
+                        const sameTypeRooms = rooms.filter(x => x.room_type_id === r.room_type_id)
+                        const optionNumber = sameTypeRooms.findIndex(x => x.id === r.id) + 1
                         return (
                           <label key={r.id} className={`flex items-center gap-4 border-2 rounded-xl p-4 cursor-pointer transition-colors ${
                             checked ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
                           } ${tooSmallAlone ? 'opacity-50' : ''}`}>
                             <input type="checkbox" checked={checked} onChange={() => toggleRoom(r.id)} className="sr-only" />
                             <div className="flex-1">
-                              <div className="font-medium text-gray-800">{r.room_types_config?.name}</div>
-                              <div className="text-sm text-gray-500">Room {r.room_number} · up to {cap} guests</div>
+                              <div className="font-medium text-gray-800">
+                                {r.room_types_config?.name}{sameTypeRooms.length > 1 ? ` — Option ${optionNumber}` : ''}
+                              </div>
+                              <div className="text-sm text-gray-500">Up to {cap} guests</div>
                             </div>
                             <div className="text-right">
                               <div className="font-bold text-blue-700">₱{Number(r.room_types_config?.base_rate ?? 0).toLocaleString()}</div>
