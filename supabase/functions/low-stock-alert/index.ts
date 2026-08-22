@@ -4,12 +4,19 @@
 // Schedule: cron(0 22 * * *)  ← 6AM PHT = 10PM UTC
 // =============================================================================
 
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { sendEmail } from '../_shared/email.ts'
+import { getResortInfo } from '../_shared/resort-info.ts'
+
 serve(async (_req) => {
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
+
+    const resort = await getResortInfo(supabase)
 
     const { data: lowItems } = await supabase
       .from('vw_low_stock_items')
@@ -43,7 +50,7 @@ serve(async (_req) => {
 body{font-family:Arial,sans-serif}table{border-collapse:collapse;width:100%}
 th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}
 </style></head><body>
-<h2>⚠️ Low Stock Alert — AquaVerde Beach Resort</h2>
+<h2>⚠️ Low Stock Alert — ${resort.name}</h2>
 <p>${lowItems.length} item(s) are below reorder level:</p>
 <table><thead><tr><th>Item</th><th>Current Stock</th><th>Reorder Level</th></tr></thead>
 <tbody>${itemList}</tbody></table>

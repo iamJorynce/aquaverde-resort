@@ -6,6 +6,7 @@ import PaymentCalculator from './PaymentCalculator'
 import { logActivity } from './activityLog'
 import { createOrUpdateInvoice } from './invoiceUtils'
 import { printReceipt } from './receipt'
+import { useResortSettings } from '@/hooks/useResortSettings'
 
 const statusColor: Record<string, string> = {
   unpaid:   'bg-red-100 text-red-700',
@@ -17,6 +18,7 @@ const statusColor: Record<string, string> = {
 
 export default function BillingPage() {
   const supabase = createClient()
+  const { settings: resortSettings } = useResortSettings()
   const [invoices, setInvoices]     = useState<any[]>([])
   const [loading, setLoading]       = useState(true)
   const [toast, setToast]           = useState('')
@@ -180,7 +182,8 @@ setInvoices(data ?? [])
       : [{ label: 'Day Use Entry', amount: Number(inv.total) }]
 
   printReceipt({
-    title: 'Sea Eagle Beach Resort',
+    title: resortSettings.resort_name,
+    subtitle: resortSettings.address,
     receiptNumber: inv.invoice_number,
     receiptType: isAccommodation ? 'Official Receipt' : 'Day Use Receipt',
     date: new Date(inv.created_at).toLocaleDateString('en-PH', { dateStyle: 'medium' }),

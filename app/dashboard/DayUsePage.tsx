@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import { logActivity } from './activityLog'
 import { usePermissions } from './permissions'
+import { useResortSettings } from '@/hooks/useResortSettings'
 import { printReceipt } from './receipt'
 import { createOrUpdateInvoice } from './invoiceUtils'
 
@@ -18,6 +19,7 @@ interface AreaCounts { adult: number; child: number; senior: number; pwd: number
 export default function DayUsePage() {
   const supabase = createClient()
   const { role } = usePermissions()
+  const { settings: resortSettings } = useResortSettings()
   const isAdmin = role === 'super_admin' || role === 'resort_owner'
 
   const [rates, setRates] = useState<RateRow[]>([])
@@ -329,7 +331,8 @@ const equipLines   = equipmentLines.map(l => ({ label: `${l.name} × ${l.quantit
 const parkingLine  = form.with_parking ? [{ label: 'Parking', amount: 100 }] : []
 
 printReceipt({
-  title: 'Sea Eagle Beach Resort',
+  title: resortSettings.resort_name,
+  subtitle: resortSettings.address,
   receiptNumber: entryNumber,
   receiptType: 'Day Use Receipt',
   date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),

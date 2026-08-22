@@ -1597,6 +1597,50 @@ export type Database = {
         }
         Relationships: []
       }
+      resort_settings: {
+        Row: {
+          id: number
+          resort_name: string
+          contact: string | null
+          email: string | null
+          address: string | null
+          check_in_time: string | null
+          check_out_time: string | null
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          id?: number
+          resort_name?: string
+          contact?: string | null
+          email?: string | null
+          address?: string | null
+          check_in_time?: string | null
+          check_out_time?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          id?: number
+          resort_name?: string
+          contact?: string | null
+          email?: string | null
+          address?: string | null
+          check_in_time?: string | null
+          check_out_time?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "resort_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       promotions: {
         Row: {
           applicable_to: string[] | null

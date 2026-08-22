@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { getResortSettings } from '@/lib/resort-settings'
 import TideLine from '@/components/public/TideLine'
 
 const IMG_ROOM     = 'https://images.unsplash.com/photo-1746549855427-57e6da7040db'
@@ -7,6 +8,7 @@ const IMG_COTTAGES = 'https://images.unsplash.com/photo-1756573345813-7caa2f4126
 
 export default async function RoomsPage() {
   const supabase = await createClient()
+  const settings = await getResortSettings()
 
   const { data: roomTypes } = await supabase
     .from('room_types_config')
@@ -138,7 +140,7 @@ export default async function RoomsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-10">
             {[
               { title: 'Reservation Fee', desc: 'A 50% deposit of your total bill confirms your booking online. This amount is non-refundable.' },
-              { title: 'Check-in / Check-out', desc: 'Check-in from 2:00 PM. Check-out by 12:00 PM. Early or late arrangements available on request.' },
+              { title: 'Check-in / Check-out', desc: `Check-in from ${settings.check_in_time}. Check-out by ${settings.check_out_time}. Early or late arrangements available on request.` },
               { title: 'Cancellations', desc: 'Cancellations made 48 hours before check-in may be rescheduled. The reservation fee is non-refundable.' },
             ].map(p => (
               <div key={p.title}>

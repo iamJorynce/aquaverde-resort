@@ -1,11 +1,15 @@
+import { getResortSettings } from '@/lib/resort-settings'
+
 const IMG_SUNSET = 'https://images.unsplash.com/photo-1587942342372-238de24880a0'
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const settings = await getResortSettings()
+
   return (
     <>
       {/* ===== HERO ===== */}
       <section className="relative h-[42vh] min-h-[320px] flex items-end overflow-hidden">
-        <img src={`${IMG_SUNSET}?w=1800&q=80&auto=format&fit=crop`} alt="Sunset at AquaVerde Beach Resort" className="absolute inset-0 w-full h-full object-cover" />
+        <img src={`${IMG_SUNSET}?w=1800&q=80&auto=format&fit=crop`} alt="Sunset at Sea Eagle Beach Resort" className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(15,38,38,0.25) 0%, rgba(15,38,38,0.8) 100%)' }} />
         <div className="relative max-w-7xl mx-auto px-5 md:px-8 pb-14 w-full">
           <div className="text-white/70 text-[12.5px] tracking-[0.2em] uppercase mb-4" style={{ fontFamily: 'Work Sans, sans-serif' }}>Get in Touch</div>
@@ -26,10 +30,10 @@ export default function ContactPage() {
             </h2>
             <div className="space-y-7">
               {[
-                { label: 'Address', value: 'AquaVerde Beach Resort\nSarangani, South Cotabato\nPhilippines' },
-                { label: 'Phone', value: '+63 912 345 6789' },
-                { label: 'Email', value: 'info@aquaverde.ph' },
-                { label: 'Facebook', value: 'facebook.com/aquaverderesort' },
+                { label: 'Address', value: `${settings.resort_name}\n${settings.address}` },
+                { label: 'Phone', value: settings.contact },
+                { label: 'Email', value: settings.email },
+                { label: 'Facebook', value: 'facebook.com/SEAEAGLEBEACHRESORTCORP' },
                 { label: 'Hours', value: 'Open 24/7 — front desk always staffed' },
               ].map(c => (
                 <div key={c.label}>
@@ -74,14 +78,14 @@ export default function ContactPage() {
                 />
               </div>
               <a
-                href="mailto:info@aquaverde.ph"
+                href={`mailto:${settings.email}`}
                 className="block w-full text-center py-3.5 rounded-full text-[14.5px] font-medium tracking-wide transition-all hover:brightness-110"
                 style={{ background: '#C97B4A', color: '#fff', fontFamily: 'Work Sans, sans-serif' }}
               >
                 Send Message
               </a>
               <p className="text-[12.5px] text-center" style={{ fontFamily: 'Work Sans, sans-serif', color: '#9A9182' }}>
-                This opens your email app, addressed to info@aquaverde.ph
+                This opens your email app, addressed to {settings.email}
               </p>
             </div>
           </div>
@@ -89,13 +93,39 @@ export default function ContactPage() {
       </section>
 
       {/* ===== MAP ===== */}
-      <section className="h-72 flex items-center justify-center" style={{ background: '#0F2626' }}>
-        <div className="text-center text-white/50">
-          <div className="text-[13px] tracking-[0.15em] uppercase mb-2" style={{ fontFamily: 'Work Sans, sans-serif' }}>Location</div>
-          <div className="text-white text-[18px]" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>Sarangani, South Cotabato</div>
-          <div className="text-[13px] mt-2" style={{ fontFamily: 'Work Sans, sans-serif' }}>Add a Google Maps embed here with your exact coordinates</div>
-        </div>
-      </section>
+      <section
+  className="py-12 px-4"
+  style={{ background: '#0F2626' }}
+>
+  <div className="text-center text-white/50">
+    <div
+      className="text-[13px] tracking-[0.15em] uppercase mb-2"
+      style={{ fontFamily: 'Work Sans, sans-serif' }}
+    >
+      Location
+    </div>
+
+    <div
+      className="text-white text-[18px] mb-6"
+      style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}
+    >
+      Mabini, Davao de Oro
+    </div>
+
+    <div className="w-full max-w-4xl mx-auto overflow-hidden rounded-lg">
+      <iframe
+        src="https://www.google.com/maps?q=7.275721061942072,125.84016831198342&z=17&output=embed"
+        width="100%"
+        height="300"
+        style={{ border: 0 }}
+        loading="lazy"
+        allowFullScreen
+        referrerPolicy="no-referrer-when-downgrade"
+        title="AquaVerde Resort Location"
+      />
+    </div>
+  </div>
+</section>
     </>
   )
 }

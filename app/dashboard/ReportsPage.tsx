@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useResortSettings } from '@/hooks/useResortSettings'
 
 type ReportSection = 'dashboard' | 'financial' | 'bookings' | 'inventory' | 'staff' | 'audit'
 
 export default function ReportsPage() {
   const supabase = createClient()
+  const { settings: resortSettings } = useResortSettings()
   const [section, setSection] = useState<ReportSection>('dashboard')
   const [from, setFrom] = useState(new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10))
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10))
@@ -210,7 +212,7 @@ export default function ReportsPage() {
       <div className="flex-1 min-w-0">
         {/* Print-only header — shows report title, date range, and when it was printed */}
         <div className="hidden print:block mb-4">
-          <div className="text-lg font-semibold text-gray-900">AquaVerde Beach Resort</div>
+          <div className="text-lg font-semibold text-gray-900">{resortSettings.resort_name}</div>
           <div className="text-sm text-gray-700">{NAV.find(n => n.id === section)?.label}</div>
           <div className="text-xs text-gray-500">
             {formatDate(from)} – {formatDate(to)} · Printed {new Date().toLocaleString('en-PH')}

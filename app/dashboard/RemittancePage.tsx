@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { logActivity } from './activityLog'
+import { useResortSettings } from '@/hooks/useResortSettings'
 
 type RemittanceTab = 'shift' | 'history' | 'approve'
 
@@ -16,6 +17,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function RemittancePage() {
   const supabase = createClient()
+  const { settings: resortSettings } = useResortSettings()
   const [tab, setTab]       = useState<RemittanceTab>('shift')
   const [profile, setProfile] = useState<any>(null)
   const [toast, setToast]   = useState('')
@@ -509,7 +511,7 @@ export default function RemittancePage() {
 </style></head><body>
 
 <div class="center">
-  <div class="title">AquaVerde Beach Resort</div>
+  <div class="title">${resortSettings.resort_name}</div>
   <div class="small">Cashier Remittance Report</div>
 </div>
 <div class="divider"></div>

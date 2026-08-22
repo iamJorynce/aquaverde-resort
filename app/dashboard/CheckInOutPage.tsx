@@ -7,6 +7,7 @@ import { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import PaymentCalculator from './PaymentCalculator'
 import { createOrUpdateInvoice } from './invoiceUtils'
 import { logActivity } from './activityLog'
+import { useResortSettings } from '@/hooks/useResortSettings'
 
 // A "group" is one or more room bookings that were made together (a guest
 // booking multiple rooms in one transaction). Ungrouped bookings become a
@@ -52,6 +53,7 @@ function groupPaid(group: BookingGroup) {
 
 export default function CheckInOutPage() {
   const supabase = createClient()
+  const { settings: resortSettings } = useResortSettings()
 
   const [tab, setTab] = useState<'in' | 'active' | 'out' | 'dayuse'>('in')
   const [search, setSearch] = useState('')
@@ -100,7 +102,10 @@ export default function CheckInOutPage() {
     const [{ data: checkins }, { data: active }, { data: checkouts }, { data: dayUse }] = await Promise.all([
       supabase.from('bookings')
         .select('*, guests(full_name, phone), rooms(room_number, id), cottages(name, cottage_code, id), group_number, is_group_primary, cottage_ids')
-        .in('status', ['pending', 'confirmed'])
+        // Only 'confirmed' — a 'pending' booking's payment proof hasn't
+        // been reviewed/approved yet in BookingsPanel. Letting front desk
+        // check those in here would skip that verification step entirely.
+        .eq('status', 'confirmed')
         .lte('check_in_date', today)
         .not('accommodation_type', 'eq', 'day_use'),
 
@@ -490,7 +495,8 @@ export default function CheckInOutPage() {
     }))
 
     printReceipt({
-      title: "AquaVerde Beach Resort",
+      title: resortSettings.resort_name,
+      subtitle: resortSettings.address,
       receiptNumber: group.items.length > 1 ? group.primary.group_number ?? group.primary.booking_number : group.primary.booking_number,
       receiptType: "Check-out Receipt",
       date: new Date().toLocaleDateString("en-PH", { dateStyle: "medium" }),

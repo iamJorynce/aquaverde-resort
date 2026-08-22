@@ -3,6 +3,12 @@
 // Bulk promo SMS blast to all opted-in guests
 // =============================================================================
 
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { sendSMS } from '../_shared/sms.ts'
+import { smsTemplates } from '../_shared/templates.ts'
+import { getResortInfo } from '../_shared/resort-info.ts'
+
 serve(async (req) => {
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
 
@@ -13,6 +19,8 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
+
+    const resort = await getResortInfo(supabase)
 
     const { data: promo } = await supabase
       .from('promotions').select('*').eq('id', promo_id).single()
@@ -37,7 +45,8 @@ serve(async (req) => {
     const message = smsTemplates.promoAlert(
       promo.title,
       promo.promo_code ?? 'N/A',
-      new Date(promo.valid_until).toLocaleDateString('en-PH')
+      new Date(promo.valid_until).toLocaleDateString('en-PH'),
+      resort
     )
 
     let sent = 0

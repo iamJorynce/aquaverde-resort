@@ -4,12 +4,20 @@
 // Schedule: cron(0 0 * * *)
 // =============================================================================
 
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { sendSMS } from '../_shared/sms.ts'
+import { smsTemplates } from '../_shared/templates.ts'
+import { getResortInfo } from '../_shared/resort-info.ts'
+
 serve(async (_req) => {
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
+
+    const resort = await getResortInfo(supabase)
 
     const today = new Date().toISOString().slice(0, 10)
 
@@ -27,7 +35,7 @@ serve(async (_req) => {
       const checkOutDate = new Date(booking.check_out_date).toLocaleDateString('en-PH', { dateStyle: 'long' })
       await sendSMS({
         to: guest.phone,
-        message: smsTemplates.checkOutReminder(guest.full_name, checkOutDate),
+        message: smsTemplates.checkOutReminder(guest.full_name, checkOutDate, resort),
       })
       results.push(booking.id)
     }

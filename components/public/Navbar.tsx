@@ -49,10 +49,10 @@ export default function Navbar() {
                 className="w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ background: 'linear-gradient(135deg, #C97B4A 0%, #1F6E63 100%)' }}
               >
-                <span className="text-white text-sm md:text-base" style={{ fontFamily: 'Fraunces, serif' }}>AV</span>
+                <span className="text-white text-sm md:text-base" style={{ fontFamily: 'Fraunces, serif' }}>SE</span>
               </div>
               <span className="text-white tracking-wide text-[15px] md:text-lg leading-none" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>
-                AquaVerde
+                Sea Eagle Beach Resort
               </span>
             </Link>
 

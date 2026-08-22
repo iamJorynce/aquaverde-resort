@@ -8,6 +8,7 @@ interface ReceiptLineItem {
 
 interface ReceiptData {
   title: string                // e.g. "AquaVerde Beach Resort"
+  subtitle?: string            // e.g. resort address — defaults below if omitted
   receiptNumber: string        // e.g. "BK-2026-1042" or "TXN-..."
   receiptType: string          // e.g. "Booking Confirmation", "Official Receipt"
   date: string                 // formatted date string
@@ -24,6 +25,23 @@ interface ReceiptData {
   footerNote?: string
 }
 
+// Escapes HTML-significant characters before interpolating a value into
+// the receipt markup below. Several of these fields — guestName and
+// guestContact especially — originate from the public, unauthenticated
+// booking form (full_name/email/phone), which does not restrict what
+// characters a guest can type. Without this, a guest could submit a name
+// like `<img src=x onerror=...>` and have it execute in a staff member's
+// browser the next time that booking's receipt is printed via
+// `document.write` below.
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 // Renders nothing visible inline — call printReceipt(data) to open a
 // print-formatted window. Keeping this as a function (not a modal component)
 // avoids fighting with the dashboard's own layout/scroll containers.
@@ -36,7 +54,7 @@ export function printReceipt(data: ReceiptData) {
 
   const lineItemsHtml = data.lineItems.map(item => `
     <tr>
-      <td style="padding:4px 0;">${item.label}${item.qty ? ` × ${item.qty}` : ''}</td>
+      <td style="padding:4px 0;">${escapeHtml(item.label)}${item.qty ? ` × ${escapeHtml(item.qty)}` : ''}</td>
       <td style="padding:4px 0; text-align:right;">₱${item.amount.toLocaleString()}</td>
     </tr>
   `).join('')
@@ -46,7 +64,7 @@ export function printReceipt(data: ReceiptData) {
 <html>
 <head>
 <meta charset="utf-8">
-<title>${data.receiptType} — ${data.receiptNumber}</title>
+<title>${escapeHtml(data.receiptType)} — ${escapeHtml(data.receiptNumber)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -72,21 +90,21 @@ export function printReceipt(data: ReceiptData) {
 </head>
 <body>
   <div class="center">
-    <div class="title">${data.title}</div>
-    <div class="subtitle">Pindasan, Mabini, Davao de Oro, PH</div>
+    <div class="title">${escapeHtml(data.title)}</div>
+    <div class="subtitle">${escapeHtml(data.subtitle ?? 'Sarangani, South Cotabato, PH')}</div>
   </div>
 
   <div class="divider"></div>
 
-  <div class="row"><span>${data.receiptType}</span><span>${data.receiptNumber}</span></div>
-  <div class="row"><span>Date</span><span>${data.date}</span></div>
-  <div class="row"><span>Guest</span><span>${data.guestName}</span></div>
+  <div class="row"><span>${escapeHtml(data.receiptType)}</span><span>${escapeHtml(data.receiptNumber)}</span></div>
+  <div class="row"><span>Date</span><span>${escapeHtml(data.date)}</span></div>
+  <div class="row"><span>Guest</span><span>${escapeHtml(data.guestName)}</span></div>
 
-  ${data.guestContact ? `<div class="row"><span>Contact</span><span>${data.guestContact}</span></div>` : ''}
+  ${data.guestContact ? `<div class="row"><span>Contact</span><span>${escapeHtml(data.guestContact)}</span></div>` : ''}
 
   <div class="divider"></div>
-  ${data.checkindate ? `<div class="row"><span>Check-in Date</span><span>${data.checkindate}</span></div>` : ''}
-  ${data.checkoutdate ? `<div class="row"><span>Check-out Date</span><span>${data.checkoutdate}</span></div>` : ''}
+  ${data.checkindate ? `<div class="row"><span>Check-in Date</span><span>${escapeHtml(data.checkindate)}</span></div>` : ''}
+  ${data.checkoutdate ? `<div class="row"><span>Check-out Date</span><span>${escapeHtml(data.checkoutdate)}</span></div>` : ''}
   <table>
     <tbody>
       ${lineItemsHtml}
@@ -97,12 +115,12 @@ export function printReceipt(data: ReceiptData) {
     </tbody>
   </table>
 
-  ${data.paymentMethod ? `<div class="row" style="margin-top:8px;"><span>Payment Method</span><span style="text-transform:capitalize;">${data.paymentMethod.replace('_',' ')}</span></div>` : ''}
+  ${data.paymentMethod ? `<div class="row" style="margin-top:8px;"><span>Payment Method</span><span style="text-transform:capitalize;">${escapeHtml(data.paymentMethod.replace('_',' '))}</span></div>` : ''}
 
   <div class="divider"></div>
 
   <div class="footer">
-    ${data.footerNote ?? 'Thank you for staying with us!'}<br>
+    ${escapeHtml(data.footerNote ?? 'Thank you for staying with us!')}<br>
     Thank you for your payment.
   </div>
 

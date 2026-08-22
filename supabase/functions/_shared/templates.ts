@@ -2,6 +2,16 @@
 // supabase/functions/_shared/templates.ts
 // =============================================================================
 
+// Pulled from the `resort_settings` DB row by each function's index.ts
+// (via getResortInfo() in resort-info.ts) instead of being hardcoded here,
+// so the Settings page in the dashboard actually controls what guests see.
+export interface ResortInfo {
+  name: string
+  phone: string
+  checkInTime: string
+  checkOutTime: string
+}
+
 export const emailTemplates = {
   bookingConfirmation: (data: {
     guestName: string
@@ -12,7 +22,7 @@ export const emailTemplates = {
     numNights: number
     totalAmount: number
     paymentStatus: string
-  }) => `
+  }, resort: ResortInfo) => `
 <!DOCTYPE html>
 <html>
 <head>
@@ -45,17 +55,17 @@ export const emailTemplates = {
 <body>
   <div class="container">
     <div class="header">
-      <h1>🌊 AquaVerde Beach Resort</h1>
+      <h1>🌊 ${resort.name}</h1>
       <p>Your booking is confirmed!</p>
     </div>
     <div class="body">
       <p>Hi <strong>${data.guestName}</strong>,</p>
-      <p>Thank you for choosing AquaVerde Beach Resort. Here are your booking details:</p>
+      <p>Thank you for choosing ${resort.name}. Here are your booking details:</p>
       <div class="booking-card">
         <div class="row"><span class="label">Booking #</span><span class="value">${data.bookingNumber}</span></div>
         <div class="row"><span class="label">Accommodation</span><span class="value">${data.roomName}</span></div>
-        <div class="row"><span class="label">Check-in</span><span class="value">${data.checkIn} (2:00 PM)</span></div>
-        <div class="row"><span class="label">Check-out</span><span class="value">${data.checkOut} (12:00 PM)</span></div>
+        <div class="row"><span class="label">Check-in</span><span class="value">${data.checkIn} (${resort.checkInTime})</span></div>
+        <div class="row"><span class="label">Check-out</span><span class="value">${data.checkOut} (${resort.checkOutTime})</span></div>
         <div class="row"><span class="label">Duration</span><span class="value">${data.numNights} night(s)</span></div>
         <div class="row total-row">
           <span>Total Amount</span>
@@ -70,15 +80,15 @@ export const emailTemplates = {
       </div>
       <p style="font-size:14px;color:#666;">
         Please bring a valid government-issued ID and your booking confirmation on check-in day.
-        For questions, call us at <strong>${Deno.env.get('RESORT_PHONE')}</strong>.
+        For questions, call us at <strong>${resort.phone}</strong>.
       </p>
       <a class="btn" href="${Deno.env.get('SUPABASE_URL')?.replace('supabase.co','vercel.app')}/my-bookings">
         View My Booking
       </a>
     </div>
     <div class="footer">
-      AquaVerde Beach Resort &bull; Sarangani, South Cotabato &bull; ${Deno.env.get('RESORT_PHONE')}<br>
-      &copy; ${new Date().getFullYear()} AquaVerde Beach Resort. All rights reserved.
+      ${resort.name} &bull; Sarangani, South Cotabato &bull; ${resort.phone}<br>
+      &copy; ${new Date().getFullYear()} ${resort.name}. All rights reserved.
     </div>
   </div>
 </body>
@@ -91,7 +101,7 @@ export const emailTemplates = {
     paymentMethod: string
     reference: string
     remainingBalance: number
-  }) => `
+  }, resort: ResortInfo) => `
 <!DOCTYPE html>
 <html>
 <head>
@@ -126,7 +136,7 @@ export const emailTemplates = {
         : `<p style="color:#3B6D11;font-weight:600">Your booking is fully paid. See you at the resort! 🏖️</p>`
       }
     </div>
-    <div class="footer">AquaVerde Beach Resort &bull; ${Deno.env.get('RESORT_PHONE')}</div>
+    <div class="footer">${resort.name} &bull; ${resort.phone}</div>
   </div>
 </body>
 </html>`,
@@ -136,7 +146,7 @@ export const emailTemplates = {
     bookingNumber: string
     roomName: string
     checkInDate: string
-  }) => `
+  }, resort: ResortInfo) => `
 <!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>body{font-family:Arial,sans-serif;color:#333}.container{max-width:600px;margin:0 auto}
@@ -147,34 +157,34 @@ export const emailTemplates = {
   <div class="header"><h1>⏰ Check-in Reminder</h1></div>
   <div class="body">
     <p>Hi <strong>${data.guestName}</strong>,</p>
-    <p>This is a friendly reminder that your check-in at <strong>AquaVerde Beach Resort</strong> is <strong>tomorrow, ${data.checkInDate}</strong>.</p>
+    <p>This is a friendly reminder that your check-in at <strong>${resort.name}</strong> is <strong>tomorrow, ${data.checkInDate}</strong>.</p>
     <p>📋 <strong>Booking:</strong> ${data.bookingNumber}<br>
        🏠 <strong>Accommodation:</strong> ${data.roomName}<br>
-       🕑 <strong>Check-in time:</strong> 2:00 PM onwards</p>
+       🕑 <strong>Check-in time:</strong> ${resort.checkInTime} onwards</p>
     <p>Please bring:<br>
       ✅ Valid government-issued ID<br>
       ✅ This booking confirmation<br>
       ✅ Security deposit (if not yet paid)</p>
     <p>We look forward to welcoming you! 🌊</p>
   </div>
-  <div class="footer">AquaVerde Beach Resort &bull; ${Deno.env.get('RESORT_PHONE')}</div>
+  <div class="footer">${resort.name} &bull; ${resort.phone}</div>
 </div>
 </body></html>`,
 }
 
 export const smsTemplates = {
-  bookingConfirmation: (bookingNumber: string, checkIn: string, roomName: string) =>
-    `AquaVerde Resort: Your booking ${bookingNumber} is confirmed! ${roomName} on ${checkIn}. Check-in: 2PM. Bring valid ID. Questions? Call ${Deno.env.get('RESORT_PHONE')}`,
+  bookingConfirmation: (bookingNumber: string, checkIn: string, roomName: string, resort: ResortInfo) =>
+    `${resort.name}: Your booking ${bookingNumber} is confirmed! ${roomName} on ${checkIn}. Check-in: ${resort.checkInTime}. Bring valid ID. Questions? Call ${resort.phone}`,
 
-  paymentConfirmation: (bookingNumber: string, amount: number, balance: number) =>
-    `AquaVerde Resort: Payment of P${amount.toLocaleString()} received for ${bookingNumber}. ${balance > 0 ? `Remaining balance: P${balance.toLocaleString()}.` : 'Fully paid!'}`,
+  paymentConfirmation: (bookingNumber: string, amount: number, balance: number, resort: ResortInfo) =>
+    `${resort.name}: Payment of P${amount.toLocaleString()} received for ${bookingNumber}. ${balance > 0 ? `Remaining balance: P${balance.toLocaleString()}.` : 'Fully paid!'}`,
 
-  checkInReminder: (guestName: string, checkIn: string) =>
-    `AquaVerde Resort: Hi ${guestName}! Reminder: your check-in is tomorrow ${checkIn} at 2PM. See you! - AquaVerde Team`,
+  checkInReminder: (guestName: string, checkIn: string, resort: ResortInfo) =>
+    `${resort.name}: Hi ${guestName}! Reminder: your check-in is tomorrow ${checkIn} at ${resort.checkInTime}. See you! - ${resort.name} Team`,
 
-  checkOutReminder: (guestName: string, checkOut: string) =>
-    `AquaVerde Resort: Hi ${guestName}! Friendly reminder: check-out today by 12:00 PM (${checkOut}). Thank you for staying with us!`,
+  checkOutReminder: (guestName: string, checkOut: string, resort: ResortInfo) =>
+    `${resort.name}: Hi ${guestName}! Friendly reminder: check-out today by ${resort.checkOutTime} (${checkOut}). Thank you for staying with us!`,
 
-  promoAlert: (promoTitle: string, promoCode: string, validUntil: string) =>
-    `AquaVerde Resort: ${promoTitle}! Use code ${promoCode} when booking. Valid until ${validUntil}. Book: aquaverde.ph`,
+  promoAlert: (promoTitle: string, promoCode: string, validUntil: string, resort: ResortInfo) =>
+    `${resort.name}: ${promoTitle}! Use code ${promoCode} when booking. Valid until ${validUntil}. Book: aquaverde.ph`,
 }

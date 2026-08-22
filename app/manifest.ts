@@ -1,8 +1,10 @@
 import type { MetadataRoute } from 'next'
+import { getResortSettings } from '@/lib/resort-settings'
 
-export default function manifest(): MetadataRoute.Manifest {
+export default async function manifest(): Promise<MetadataRoute.Manifest> {
+  const settings = await getResortSettings()
   return {
-    name: 'AquaVerde Beach Resort',
+    name: settings.resort_name,
     short_name: 'AquaVerde',
     description: 'Beach Resort Management System',
     start_url: '/dashboard',

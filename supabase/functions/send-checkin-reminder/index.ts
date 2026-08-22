@@ -4,12 +4,21 @@
 // Schedule: cron(0 2 * * *)  ← 10AM PHT = 2AM UTC
 // =============================================================================
 
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { sendEmail } from '../_shared/email.ts'
+import { sendSMS } from '../_shared/sms.ts'
+import { emailTemplates, smsTemplates } from '../_shared/templates.ts'
+import { getResortInfo } from '../_shared/resort-info.ts'
+
 serve(async (_req) => {
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
+
+    const resort = await getResortInfo(supabase)
 
     // Get all bookings checking in tomorrow
     const tomorrow = new Date()
@@ -42,20 +51,20 @@ serve(async (_req) => {
       if (guest?.email) {
         sent.email = await sendEmail({
           to: guest.email,
-          subject: `Check-in Tomorrow – ${booking.booking_number} | AquaVerde Resort`,
+          subject: `Check-in Tomorrow – ${booking.booking_number} | ${resort.name}`,
           html: emailTemplates.checkInReminder({
             guestName:     guest.full_name,
             bookingNumber: booking.booking_number,
             roomName,
             checkInDate,
-          }),
+          }, resort),
         })
       }
 
       if (guest?.phone) {
         sent.sms = await sendSMS({
           to: guest.phone,
-          message: smsTemplates.checkInReminder(guest.full_name, checkInDate),
+          message: smsTemplates.checkInReminder(guest.full_name, checkInDate, resort),
         })
       }
 

@@ -6,6 +6,7 @@ import { printReceipt } from './receipt'
 import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import { logActivity } from './activityLog'
 import { usePermissions } from './permissions'
+import { useResortSettings } from '@/hooks/useResortSettings'
 
 interface MenuItem { id: string; name: string; price: number; category_id: string; is_available: boolean; direct_inventory_item_id: string | null; menu_categories: { name: string; id: string } | null }
 interface CartItem  { id: string; name: string; price: number; qty: number }
@@ -16,6 +17,7 @@ interface DirectStockInfo { inventory_item_id: string; name: string; current_sto
 export default function POSPage() {
   const supabase = createClient()
   const { role } = usePermissions()
+  const { settings: resortSettings } = useResortSettings()
   const isAdmin = role === 'super_admin' || role === 'resort_owner'
 
   const [hasActiveShift, setHasActiveShift] = useState<boolean | null>(null)
@@ -261,7 +263,8 @@ export default function POSPage() {
       })
 
       printReceipt({
-        title: 'AquaVerde Beach Resort',
+        title: resortSettings.resort_name,
+        subtitle: resortSettings.address,
         receiptNumber: orderNumber,
         receiptType: 'POS Receipt',
         date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),

@@ -487,7 +487,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             <span className="text-xl">🌊</span>
             <div>
-              <div className="text-sm font-semibold text-gray-800">AquaVerde</div>
+              <div className="text-sm font-semibold text-gray-800">Sea Eagle</div>
               <div className="text-xs text-gray-400">Beach Resort</div>
             </div>
           </div>

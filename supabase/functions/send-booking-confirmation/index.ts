@@ -7,6 +7,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { sendEmail } from '../_shared/email.ts'
 import { sendSMS } from '../_shared/sms.ts'
 import { emailTemplates, smsTemplates } from '../_shared/templates.ts'
+import { getResortInfo } from '../_shared/resort-info.ts'
 import { corsHeaders } from '../_shared/cors.ts'
 
 serve(async (req) => {
@@ -37,6 +38,7 @@ serve(async (req) => {
 
     if (error || !booking) return new Response('Booking not found', { status: 404, headers: corsHeaders })
 
+    const resort = await getResortInfo(supabase)
     const guest = booking.guests as any
     const roomName = booking.rooms
       ? `Room ${booking.rooms.room_number} – ${(booking.rooms.room_types_config as any)?.name}`
@@ -57,7 +59,7 @@ serve(async (req) => {
       try {
         results.email = await sendEmail({
           to: guest.email,
-          subject: `Booking Confirmed – ${booking.booking_number} | AquaVerde Beach Resort`,
+          subject: `Booking Confirmed – ${booking.booking_number} | ${resort.name}`,
           html: emailTemplates.bookingConfirmation({
             guestName:     guest.full_name,
             bookingNumber: booking.booking_number,
@@ -67,7 +69,7 @@ serve(async (req) => {
             numNights:     booking.num_nights,
             totalAmount:   booking.total_amount,
             paymentStatus: booking.payment_status,
-          }),
+          }, resort),
         })
       } catch (emailErr) {
         console.error('Email send failed:', emailErr)
@@ -86,7 +88,7 @@ serve(async (req) => {
           results.sms = await sendSMS({
             to: guest.phone,
             message: smsTemplates.bookingConfirmation(
-              booking.booking_number, checkInDate, roomName
+              booking.booking_number, checkInDate, roomName, resort
             ),
           })
         } catch (smsErr) {

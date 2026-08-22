@@ -35,7 +35,7 @@ export default async function HomePage() {
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 text-white/80 text-[12.5px] tracking-[0.2em] uppercase mb-6" style={{ fontFamily: 'Work Sans, sans-serif' }}>
               <span className="w-6 h-px bg-white/50" />
-              Sarangani, South Cotabato
+              Mabini, Davao de Oro, PH
             </div>
             <h1 className="text-white text-[42px] leading-[1.08] md:text-[68px] md:leading-[1.05] mb-6" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, letterSpacing: '-0.01em' }}>
               Where the tide<br />sets the pace.
@@ -60,7 +60,7 @@ export default async function HomePage() {
       <section className="py-24 md:py-32" style={{ background: '#FAF6EF' }}>
         <div className="max-w-3xl mx-auto px-5 md:px-8 text-center">
           <div className="text-[13px] tracking-[0.2em] uppercase mb-6" style={{ fontFamily: 'Work Sans, sans-serif', color: '#C97B4A' }}>
-            Welcome to AquaVerde
+            Welcome to Sea Eagle Beach Resort
           </div>
           <p className="text-[26px] md:text-[34px] leading-[1.4]" style={{ fontFamily: 'Fraunces, serif', fontWeight: 400, color: '#1A2E2B' }}>
             Every room opens to the sound of water. Every evening ends the same way —

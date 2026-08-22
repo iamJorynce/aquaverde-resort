@@ -3,10 +3,12 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useResortSettings } from '@/hooks/useResortSettings'
 
 export default function LoginPage() {
   const router = useRouter()
   const supabase = createClient()
+  const { settings: resortSettings } = useResortSettings()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -46,7 +48,7 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur mb-4">
             <span className="text-3xl">🌊</span>
           </div>
-          <h1 className="text-2xl font-semibold text-white">AquaVerde Beach Resort</h1>
+          <h1 className="text-2xl font-semibold text-white">{resortSettings.resort_name}</h1>
           <p className="text-blue-200 text-sm mt-1">Management System</p>
         </div>
 
@@ -95,7 +97,7 @@ export default function LoginPage() {
           </form>
 
           <p className="text-center text-xs text-gray-400 mt-6">
-            AquaVerde Resort Management System v1.0
+            Sea Eagle Beach Resort Management System v1.0
           </p>
         </div>
       </div>

@@ -1,33 +1,98 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { MODULE_ACCESS, ROLE_LABELS, type Role } from './permissions'
+
+type FormState = {
+  resort_name: string
+  contact: string
+  email: string
+  address: string
+  check_in_time: string
+  check_out_time: string
+}
+
+const EMPTY_FORM: FormState = {
+  resort_name: '',
+  contact: '',
+  email: '',
+  address: '',
+  check_in_time: '',
+  check_out_time: '',
+}
+
+// Roles derived from permissions.ts instead of hardcoded, so this table can
+// never drift from the actual access-control logic.
+const FULL_ACCESS: Role[] = ['super_admin', 'resort_owner']
+
+function accessLabel(role: Role): { access: string; cls: string } {
+  if (FULL_ACCESS.includes(role)) return { access: 'Full Access', cls: 'bg-red-100 text-red-700' }
+  const moduleCount = Object.values(MODULE_ACCESS).filter(roles => roles.includes(role)).length
+  if (role === 'guest') return { access: 'Portal Only', cls: 'bg-green-100 text-green-700' }
+  if (moduleCount <= 2) return { access: 'Tasks Only', cls: 'bg-gray-100 text-gray-600' }
+  if (role === 'cashier') return { access: 'POS + Billing', cls: 'bg-blue-100 text-blue-700' }
+  return { access: 'Operations', cls: 'bg-blue-100 text-blue-700' }
+}
+
+const roles = (Object.keys(ROLE_LABELS) as Role[]).map(role => ({
+  role: ROLE_LABELS[role],
+  ...accessLabel(role),
+}))
 
 export default function SettingsPage() {
+  const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [form, setForm] = useState({
-    resort_name: 'AquaVerde Beach Resort',
-    contact: '+63 912 345 6789',
-    email: 'info@aquaverde.ph',
-    address: 'Sarangani, South Cotabato, PH',
-    check_in_time: '2:00 PM',
-    check_out_time: '12:00 PM',
-  })
+  const [error, setError] = useState<string | null>(null)
 
-  function save() {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
-    // Note: persist this to a settings table in Supabase if you want it saved server-side.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(json => {
+        if (cancelled) return
+        if (!json.success) {
+          setError(json.error ?? 'Failed to load settings')
+          return
+        }
+        const d = json.data
+        setForm({
+          resort_name: d.resort_name ?? '',
+          contact: d.contact ?? '',
+          email: d.email ?? '',
+          address: d.address ?? '',
+          check_in_time: d.check_in_time ?? '',
+          check_out_time: d.check_out_time ?? '',
+        })
+      })
+      .catch(() => !cancelled && setError('Failed to load settings'))
+      .finally(() => !cancelled && setLoading(false))
+    return () => { cancelled = true }
+  }, [])
+
+  async function save() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      const json = await res.json()
+      if (!json.success) {
+        setError(json.error ?? 'Failed to save settings')
+        return
+      }
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch {
+      setError('Failed to save settings')
+    } finally {
+      setSaving(false)
+    }
   }
-
-  const roles = [
-    { role: 'Super Admin',   access: 'Full Access',       cls: 'bg-red-100 text-red-700' },
-    { role: 'Resort Owner',  access: 'Full Access',       cls: 'bg-red-100 text-red-700' },
-    { role: 'Front Desk',    access: 'Operations',        cls: 'bg-blue-100 text-blue-700' },
-    { role: 'Cashier',       access: 'POS + Billing',     cls: 'bg-blue-100 text-blue-700' },
-    { role: 'Housekeeping',  access: 'Tasks Only',        cls: 'bg-gray-100 text-gray-600' },
-    { role: 'Maintenance',   access: 'Tasks Only',        cls: 'bg-gray-100 text-gray-600' },
-    { role: 'Guest',         access: 'Portal Only',       cls: 'bg-green-100 text-green-700' },
-  ]
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -47,16 +112,19 @@ export default function SettingsPage() {
               <input
                 value={(form as any)[f.key]}
                 onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white"
+                disabled={loading}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white disabled:bg-gray-50"
               />
             </div>
           ))}
-          <button onClick={save} className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg">
-            {saved ? '✓ Saved!' : 'Save Changes'}
+          <button
+            onClick={save}
+            disabled={loading || saving}
+            className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 disabled:opacity-60 text-white text-sm font-medium rounded-lg"
+          >
+            {saving ? 'Saving…' : saved ? '✓ Saved!' : 'Save Changes'}
           </button>
-          <div className="text-xs text-gray-400">
-            Note: connect this form to a Supabase <code className="bg-gray-100 px-1 rounded">settings</code> table to persist changes.
-          </div>
+          {error && <div className="text-xs text-red-600">{error}</div>}
         </div>
       </div>
 

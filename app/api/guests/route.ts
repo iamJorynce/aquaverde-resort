@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
+import { sanitizeSearchTerm } from '@/lib/validation'
 
 export async function GET(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
@@ -18,7 +19,13 @@ export async function GET(request: NextRequest) {
     .limit(limit)
 
   if (search) {
-    query = query.or(`full_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%,guest_code.ilike.%${search}%`)
+    // Strip characters that are structural in PostgREST's filter syntax
+    // (`,` separates OR conditions, `(`/`)` group them) so a search term
+    // like `x,full_name.ilike.*` can't inject extra conditions into the
+    // query below. Legitimate guest-name/phone/email searches never need
+    // these characters.
+    const safeSearch = sanitizeSearchTerm(search)
+    query = query.or(`full_name.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,guest_code.ilike.%${safeSearch}%`)
   }
 
   const { data, error } = await query

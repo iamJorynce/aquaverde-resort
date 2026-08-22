@@ -1,12 +1,16 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import { getResortSettings } from '@/lib/resort-settings'
 
 const inter = Inter({ subsets: ['latin'] })
 
-export const metadata: Metadata = {
-  title: 'AquaVerde Beach Resort',
-  description: 'Resort Management System',
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getResortSettings()
+  return {
+    title: settings.resort_name,
+    description: 'Resort Management System',
+  }
 }
 
 export default function RootLayout({

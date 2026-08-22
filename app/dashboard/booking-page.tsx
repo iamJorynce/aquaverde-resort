@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useResortSettings } from '@/hooks/useResortSettings'
 
 interface RoomType {
   id: string; name: string; base_rate: number; max_capacity: number
@@ -15,6 +16,7 @@ interface RoomOption {
 
 export default function BookingPage() {
   const supabase = createClient()
+  const { settings: resortSettings } = useResortSettings()
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -533,13 +535,13 @@ total_amount: rl.amount,
                 <div className="bg-gray-50 rounded-xl p-4 text-sm">
                   <div className="font-medium text-gray-700 mb-1">Send payment to:</div>
                   <div className="text-gray-600">GCash: <strong>0912 345 6789</strong></div>
-                  <div className="text-gray-600">Account Name: <strong>AquaVerde Beach Resort</strong></div>
+                  <div className="text-gray-600">Account Name: <strong>{resortSettings.resort_name}</strong></div>
                 </div>
               ) : (
                 <div className="bg-gray-50 rounded-xl p-4 text-sm">
                   <div className="font-medium text-gray-700 mb-1">Bank Transfer Details:</div>
                   <div className="text-gray-600">Bank: <strong>BDO</strong></div>
-                  <div className="text-gray-600">Account Name: <strong>AquaVerde Beach Resort</strong></div>
+                  <div className="text-gray-600">Account Name: <strong>{resortSettings.resort_name}</strong></div>
                   <div className="text-gray-600">Account Number: <strong>1234-5678-9012</strong></div>
                 </div>
               )}

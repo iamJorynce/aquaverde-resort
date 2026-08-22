@@ -9,10 +9,10 @@ export default function Footer() {
             <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #C97B4A 0%, #1F6E63 100%)' }}>
               <span className="text-white text-sm" style={{ fontFamily: 'Fraunces, serif' }}>AV</span>
             </div>
-            <span className="text-white text-lg" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>AquaVerde</span>
+            <span className="text-white text-lg" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>Sea Eagle Beach Resort</span>
           </div>
           <p className="text-[14.5px] leading-relaxed max-w-sm" style={{ fontFamily: 'Work Sans, sans-serif' }}>
-            A quiet stretch of coastline in Sarangani, South Cotabato — where the tide sets the schedule
+            A quiet stretch of coastline in Mabini, Davao de Oro — where the tide sets the schedule
             and the only agenda is the one you bring with you.
           </p>
         </div>
@@ -29,17 +29,17 @@ export default function Footer() {
         <div className="md:col-span-4">
           <div className="text-white text-[13px] tracking-[0.12em] uppercase mb-5" style={{ fontFamily: 'Work Sans, sans-serif' }}>Find Us</div>
           <div className="flex flex-col gap-3 text-[14.5px]" style={{ fontFamily: 'Work Sans, sans-serif' }}>
-            <div>Sarangani, South Cotabato, Philippines</div>
+            <div>Mabini, Davao de Oro, Philippines</div>
             <div>+63 912 345 6789</div>
-            <div>info@aquaverde.ph</div>
+            <div>info@seaeagle.ph</div>
             <div className="opacity-60">Front desk open 24/7</div>
           </div>
         </div>
       </div>
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-5 md:px-8 py-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-[13px] opacity-50" style={{ fontFamily: 'Work Sans, sans-serif' }}>
-          <span>© {new Date().getFullYear()} AquaVerde Beach Resort. All rights reserved.</span>
-          <span>Sarangani · South Cotabato · Philippines</span>
+          <span>© {new Date().getFullYear()} Sea Eagle Beach Resort. All rights reserved.</span>
+          <span>Mabini · Davao de Oro · Philippines</span>
         </div>
       </div>
     </footer>

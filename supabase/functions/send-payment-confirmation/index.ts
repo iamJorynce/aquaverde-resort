@@ -2,6 +2,13 @@
 // supabase/functions/send-payment-confirmation/index.ts
 // =============================================================================
 
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { sendEmail } from '../_shared/email.ts'
+import { sendSMS } from '../_shared/sms.ts'
+import { emailTemplates, smsTemplates } from '../_shared/templates.ts'
+import { getResortInfo } from '../_shared/resort-info.ts'
+
 serve(async (req) => {
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
 
