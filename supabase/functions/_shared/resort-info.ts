@@ -1,7 +1,7 @@
 import type { ResortInfo } from './templates.ts'
 
 const DEFAULT_RESORT_INFO: ResortInfo = {
-  name: 'AquaVerde Beach Resort',
+  name: 'Sea Eagle Beach Resort',
   phone: Deno.env.get('RESORT_PHONE') ?? '+63 912 345 6789',
   checkInTime: '2:00 PM',
   checkOutTime: '12:00 PM',

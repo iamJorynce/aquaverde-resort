@@ -82,12 +82,9 @@ export const emailTemplates = {
         Please bring a valid government-issued ID and your booking confirmation on check-in day.
         For questions, call us at <strong>${resort.phone}</strong>.
       </p>
-      <a class="btn" href="${Deno.env.get('SUPABASE_URL')?.replace('supabase.co','vercel.app')}/my-bookings">
-        View My Booking
-      </a>
     </div>
     <div class="footer">
-      ${resort.name} &bull; Sarangani, South Cotabato &bull; ${resort.phone}<br>
+      ${resort.name} &bull; Mabini, Davao de Oro &bull; ${resort.phone}<br>
       &copy; ${new Date().getFullYear()} ${resort.name}. All rights reserved.
     </div>
   </div>
@@ -186,5 +183,5 @@ export const smsTemplates = {
     `${resort.name}: Hi ${guestName}! Friendly reminder: check-out today by ${resort.checkOutTime} (${checkOut}). Thank you for staying with us!`,
 
   promoAlert: (promoTitle: string, promoCode: string, validUntil: string, resort: ResortInfo) =>
-    `${resort.name}: ${promoTitle}! Use code ${promoCode} when booking. Valid until ${validUntil}. Book: aquaverde.ph`,
+    `${resort.name}: ${promoTitle}! Use code ${promoCode} when booking. Valid until ${validUntil}. Book: seaeagle.ph`,
 }
