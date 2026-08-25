@@ -97,7 +97,7 @@ export default function LoginPage() {
           </form>
 
           <p className="text-center text-xs text-gray-400 mt-6">
-            Sea Eagle Beach Resort Management System v1.0
+            {resortSettings.resort_name} Management System v1.0
           </p>
         </div>
       </div>

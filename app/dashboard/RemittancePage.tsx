@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { logActivity } from './activityLog'
 import { useResortSettings } from '@/hooks/useResortSettings'
+import { escapeHtml } from './receipt'
 
 type RemittanceTab = 'shift' | 'history' | 'approve'
 
@@ -453,12 +454,16 @@ export default function RemittancePage() {
     const eqTxns = (txns ?? []).filter((t: any) => t.txn_type === 'equipment_rental')
     const eqTotal = eqTxns.reduce((s: number, t: any) => s + Number(t.amount), 0)
 
+    // POS / store sale transactions
+    const posTxns = (txns ?? []).filter((t: any) => t.txn_type === 'pos')
+    const posTotal = posTxns.reduce((s: number, t: any) => s + Number(t.amount), 0)
+
     const roomSection = roomTxns.length > 0 ? `
     <div class="divider"></div>
     <div class="bold small">WALK-IN / ROOM BOOKINGS (${roomTxns.length})</div>
     ${roomTxns.map((t: any) => {
       const time = new Date(t.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
-      return `<div class="row small"><span>${time} ${t.description}</span><span>₱${Number(t.amount).toLocaleString()}</span></div>`
+      return `<div class="row small"><span>${escapeHtml(time)} ${escapeHtml(t.description)}</span><span>₱${Number(t.amount).toLocaleString()}</span></div>`
     }).join('')}
     <div class="row bold"><span>Total Walk-in</span><span>₱${roomTotal.toLocaleString()}</span></div>
     ` : ''
@@ -468,9 +473,19 @@ export default function RemittancePage() {
     <div class="bold small">EQUIPMENT RENTALS (${eqTxns.length})</div>
     ${eqTxns.map((t: any) => {
       const time = new Date(t.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
-      return `<div class="row small"><span>${time} ${t.description}</span><span>₱${Number(t.amount).toLocaleString()}</span></div>`
+      return `<div class="row small"><span>${escapeHtml(time)} ${escapeHtml(t.description)}</span><span>₱${Number(t.amount).toLocaleString()}</span></div>`
     }).join('')}
     <div class="row bold"><span>Total Equipment</span><span>₱${eqTotal.toLocaleString()}</span></div>
+    ` : ''
+
+    const posSection = posTxns.length > 0 ? `
+    <div class="divider"></div>
+    <div class="bold small">POS / STORE SALES (${posTxns.length})</div>
+    ${posTxns.map((t: any) => {
+      const time = new Date(t.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
+      return `<div class="row small"><span>${escapeHtml(time)} ${escapeHtml(t.description)}</span><span>₱${Number(t.amount).toLocaleString()}</span></div>`
+    }).join('')}
+    <div class="row bold"><span>Total POS</span><span>₱${posTotal.toLocaleString()}</span></div>
     ` : ''
 
     const dayUseSection = areaRows.length > 0 ? `
@@ -511,16 +526,16 @@ export default function RemittancePage() {
 </style></head><body>
 
 <div class="center">
-  <div class="title">${resortSettings.resort_name}</div>
+  <div class="title">${escapeHtml(resortSettings.resort_name)}</div>
   <div class="small">Cashier Remittance Report</div>
 </div>
 <div class="divider"></div>
-<div class="row"><span>Remittance #</span><span>${rem.remittance_number}</span></div>
-<div class="row"><span>Cashier</span><span>${rem.cashier_name}</span></div>
-<div class="row"><span>Shift</span><span>${shift.shift_type ?? ''} — ${new Date(shift.opened_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
+<div class="row"><span>Remittance #</span><span>${escapeHtml(rem.remittance_number)}</span></div>
+<div class="row"><span>Cashier</span><span>${escapeHtml(rem.cashier_name)}</span></div>
+<div class="row"><span>Shift</span><span>${escapeHtml(shift.shift_type ?? '')} — ${new Date(shift.opened_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
 <div class="row"><span>Shift In</span><span>${new Date(shift.opened_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}</span></div>
 <div class="row"><span>Shift Out</span><span>${shift.closed_at ? new Date(shift.closed_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' }) : '—'}</span></div>
-<div class="row"><span>Status</span><span>${rem.status.toUpperCase()}</span></div>
+<div class="row"><span>Status</span><span>${escapeHtml(rem.status.toUpperCase())}</span></div>
 
 <div class="divider"></div>
 <div class="section-title">COLLECTIONS SUMMARY</div>
@@ -538,21 +553,22 @@ export default function RemittancePage() {
 <div class="row"><span>Opening Fund</span><span>₱${Number(rem.opening_fund).toLocaleString()}</span></div>
 <div class="row"><span>Expected Cash</span><span>₱${Number(rem.expected_cash).toLocaleString()}</span></div>
 <div class="row"><span>Actual Cash</span><span>₱${Number(rem.actual_cash).toLocaleString()}</span></div>
-<div class="row bold"><span>Variance (${rem.variance_status?.toUpperCase()})</span><span>${Number(rem.variance) >= 0 ? '+' : ''}₱${Number(rem.variance).toLocaleString()}</span></div>
-${rem.variance_remarks ? `<div class="small">Remarks: ${rem.variance_remarks}</div>` : ''}
+<div class="row bold"><span>Variance (${escapeHtml(rem.variance_status?.toUpperCase())})</span><span>${Number(rem.variance) >= 0 ? '+' : ''}₱${Number(rem.variance).toLocaleString()}</span></div>
+${rem.variance_remarks ? `<div class="small">Remarks: ${escapeHtml(rem.variance_remarks)}</div>` : ''}
 
 ${dayUseSection}
 ${roomSection}
 ${eqSection}
+${posSection}
 
 <div class="divider"></div>
-${rem.notes ? `<div class="small">Notes: ${rem.notes}</div><div class="divider"></div>` : ''}
-${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>${rem.approved_by_name}</span></div>` : ''}
+${rem.notes ? `<div class="small">Notes: ${escapeHtml(rem.notes)}</div><div class="divider"></div>` : ''}
+${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>${escapeHtml(rem.approved_by_name)}</span></div>` : ''}
 
 <div style="margin-top:32px;display:flex;justify-content:space-between;font-size:11px;">
   <div style="text-align:center;width:45%">
     <div style="margin-top:28px;border-top:1px solid #000"></div>
-    <div>${rem.cashier_name}</div>
+    <div>${escapeHtml(rem.cashier_name)}</div>
     <div class="small">Cashier Signature</div>
   </div>
   <div style="text-align:center;width:45%">
@@ -835,6 +851,30 @@ ${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>$
                       </div>
                       <div className="flex justify-between text-xs font-bold text-amber-800 border-t border-amber-300 pt-1 mt-1">
                         <span>Total — {eqTxns.length} rental(s)</span>
+                        <span>₱{total.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* POS / Store Sales Breakdown */}
+                {(() => {
+                  const posTxns = shiftTxns.filter(t => !t.voided && t.txn_type === 'pos')
+                  if (posTxns.length === 0) return null
+                  const total = posTxns.reduce((s, t) => s + Number(t.amount), 0)
+                  return (
+                    <div className="mb-3 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
+                      <div className="text-xs font-semibold text-purple-700 mb-2">🛒 POS / Store Sales</div>
+                      <div className="space-y-1 max-h-28 overflow-y-auto">
+                        {posTxns.map((t, i) => (
+                          <div key={i} className="flex justify-between text-xs text-purple-700">
+                            <span className="truncate pr-2">{t.description}</span>
+                            <span className="shrink-0 font-medium">₱{Number(t.amount).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-between text-xs font-bold text-purple-800 border-t border-purple-300 pt-1 mt-1">
+                        <span>Total — {posTxns.length} sale(s)</span>
                         <span>₱{total.toLocaleString()}</span>
                       </div>
                     </div>

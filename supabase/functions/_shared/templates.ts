@@ -82,9 +82,13 @@ export const emailTemplates = {
         Please bring a valid government-issued ID and your booking confirmation on check-in day.
         For questions, call us at <strong>${resort.phone}</strong>.
       </p>
+      ${Deno.env.get('APP_URL') ? `
+      <a class="btn" href="${Deno.env.get('APP_URL')}/my-bookings">
+        View My Booking
+      </a>` : ''}
     </div>
     <div class="footer">
-      ${resort.name} &bull; Mabini, Davao de Oro &bull; ${resort.phone}<br>
+      ${resort.name} &bull; Sarangani, South Cotabato &bull; ${resort.phone}<br>
       &copy; ${new Date().getFullYear()} ${resort.name}. All rights reserved.
     </div>
   </div>
@@ -183,5 +187,5 @@ export const smsTemplates = {
     `${resort.name}: Hi ${guestName}! Friendly reminder: check-out today by ${resort.checkOutTime} (${checkOut}). Thank you for staying with us!`,
 
   promoAlert: (promoTitle: string, promoCode: string, validUntil: string, resort: ResortInfo) =>
-    `${resort.name}: ${promoTitle}! Use code ${promoCode} when booking. Valid until ${validUntil}. Book: seaeagle.ph`,
+    `${resort.name}: ${promoTitle}! Use code ${promoCode} when booking. Valid until ${validUntil}. ${Deno.env.get('APP_URL') ? `Book: ${Deno.env.get('APP_URL')}` : `Call ${resort.phone} to book.`}`,
 }

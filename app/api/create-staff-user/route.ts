@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import { todayInManila } from '@/lib/bookingDates'
 import { NextRequest, NextResponse } from 'next/server'
 
 // This route uses the SERVICE ROLE key, which has full admin access to
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
         department: department || null,
         position: position || null,
         shift: shift || 'AM',
-        hire_date: hire_date || new Date().toISOString().slice(0, 10),
+        hire_date: hire_date || todayInManila(),
       })
 
     if (staffError) {

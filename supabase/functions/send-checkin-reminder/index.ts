@@ -10,6 +10,7 @@ import { sendEmail } from '../_shared/email.ts'
 import { sendSMS } from '../_shared/sms.ts'
 import { emailTemplates, smsTemplates } from '../_shared/templates.ts'
 import { getResortInfo } from '../_shared/resort-info.ts'
+import { tomorrowInManila } from '../_shared/date.ts'
 
 serve(async (_req) => {
   try {
@@ -21,9 +22,7 @@ serve(async (_req) => {
     const resort = await getResortInfo(supabase)
 
     // Get all bookings checking in tomorrow
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    const tomorrowStr = tomorrow.toISOString().slice(0, 10)
+    const tomorrowStr = tomorrowInManila()
 
     const { data: bookings, error } = await supabase
       .from('bookings')

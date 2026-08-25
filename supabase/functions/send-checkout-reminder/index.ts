@@ -9,6 +9,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { sendSMS } from '../_shared/sms.ts'
 import { smsTemplates } from '../_shared/templates.ts'
 import { getResortInfo } from '../_shared/resort-info.ts'
+import { todayInManila } from '../_shared/date.ts'
 
 serve(async (_req) => {
   try {
@@ -19,7 +20,7 @@ serve(async (_req) => {
 
     const resort = await getResortInfo(supabase)
 
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayInManila()
 
     const { data: bookings } = await supabase
       .from('bookings')

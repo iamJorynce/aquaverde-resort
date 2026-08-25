@@ -28,6 +28,7 @@ serve(async (req) => {
 
     if (!txn) return new Response('Transaction not found', { status: 404 })
 
+    const resort  = await getResortInfo(supabase)
     const guest   = txn.guests as any
     const booking = txn.bookings as any
     const balance = Math.max(0, (booking?.total_amount ?? 0) - (booking?.amount_paid ?? 0))
@@ -36,7 +37,7 @@ serve(async (req) => {
     if (guest?.email) {
       results.email = await sendEmail({
         to: guest.email,
-        subject: `Payment Confirmed – ${booking?.booking_number} | AquaVerde Resort`,
+        subject: `Payment Confirmed – ${booking?.booking_number} | ${resort.name}`,
         html: emailTemplates.paymentConfirmation({
           guestName:        guest.full_name,
           bookingNumber:    booking?.booking_number ?? '',
@@ -44,7 +45,7 @@ serve(async (req) => {
           paymentMethod:    txn.payment_method,
           reference:        txn.reference_number ?? '',
           remainingBalance: balance,
-        }),
+        }, resort),
       })
     }
 
@@ -52,7 +53,7 @@ serve(async (req) => {
       results.sms = await sendSMS({
         to: guest.phone,
         message: smsTemplates.paymentConfirmation(
-          booking?.booking_number ?? '', txn.amount, balance
+          booking?.booking_number ?? '', txn.amount, balance, resort
         ),
       })
     }

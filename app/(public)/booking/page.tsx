@@ -583,15 +583,15 @@ function BookingPageContent() {
               {form.payment_method === 'gcash' ? (
                 <div className="bg-gray-50 rounded-xl p-4 text-sm">
                   <div className="font-medium text-gray-700 mb-1">Send payment to:</div>
-                  <div className="text-gray-600">GCash: <strong>0912 345 6789</strong></div>
+                  <div className="text-gray-600">GCash: <strong>{resortSettings.gcash_number || '—'}</strong></div>
                   <div className="text-gray-600">Account Name: <strong>{resortSettings.resort_name}</strong></div>
                 </div>
               ) : (
                 <div className="bg-gray-50 rounded-xl p-4 text-sm">
                   <div className="font-medium text-gray-700 mb-1">Bank Transfer Details:</div>
-                  <div className="text-gray-600">Bank: <strong>BDO</strong></div>
+                  <div className="text-gray-600">Bank: <strong>{resortSettings.bank_name || '—'}</strong></div>
                   <div className="text-gray-600">Account Name: <strong>{resortSettings.resort_name}</strong></div>
-                  <div className="text-gray-600">Account Number: <strong>1234-5678-9012</strong></div>
+                  <div className="text-gray-600">Account Number: <strong>{resortSettings.bank_account_number || '—'}</strong></div>
                 </div>
               )}
 

@@ -1,19 +1,21 @@
 import TideLine from '@/components/public/TideLine'
+import { getResortSettings } from '@/lib/resort-settings'
 
 const IMG_COTTAGES = 'https://images.unsplash.com/photo-1756573345813-7caa2f412606'
 const IMG_POOL      = 'https://images.unsplash.com/photo-1526865046467-312f4d616a42'
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const settings = await getResortSettings()
   return (
     <>
       {/* ===== HERO ===== */}
       <section className="relative h-[52vh] min-h-[380px] flex items-end overflow-hidden">
-        <img src={`${IMG_COTTAGES}?w=1800&q=80&auto=format&fit=crop`} alt="Beach cottages at Sea Eagle Beach Resort" className="absolute inset-0 w-full h-full object-cover" />
+        <img src={`${IMG_COTTAGES}?w=1800&q=80&auto=format&fit=crop`} alt="Beach cottages at AquaVerde" className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(15,38,38,0.25) 0%, rgba(15,38,38,0.75) 100%)' }} />
         <div className="relative max-w-7xl mx-auto px-5 md:px-8 pb-14 md:pb-16 w-full">
           <div className="text-white/70 text-[12.5px] tracking-[0.2em] uppercase mb-4" style={{ fontFamily: 'Work Sans, sans-serif' }}>Our Story</div>
           <h1 className="text-white text-[38px] md:text-[54px] leading-tight" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>
-            About Sea Eagle Beach Resort
+            About {settings.resort_name}
           </h1>
         </div>
       </section>
@@ -22,12 +24,12 @@ export default function AboutPage() {
       <section className="py-24 md:py-28" style={{ background: '#FAF6EF' }}>
         <div className="max-w-3xl mx-auto px-5 md:px-8">
           <p className="text-[22px] md:text-[28px] leading-[1.5] mb-8" style={{ fontFamily: 'Fraunces, serif', fontWeight: 400, color: '#1A2E2B' }}>
-            Sea Eagle Beach Resort began as a simple idea — a place where the pace of the tide
+            AquaVerde began as a simple idea — a place where the pace of the tide
             replaces the pace of everything else.
           </p>
           <div className="space-y-5 text-[15.5px] leading-relaxed" style={{ fontFamily: 'Work Sans, sans-serif', color: '#5C5240' }}>
             <p>
-              Set along the coast of Pindasan, Mabini, Davao de Oro, the resort was built with one
+              Set along the coast of Sarangani, South Cotabato, the resort was built with one
               rule guiding every decision: nothing should get in the way of the view. Rooms open
               toward the water. Cottages sit close enough to hear the waves. Even the restaurant
               faces the horizon.
@@ -50,7 +52,7 @@ export default function AboutPage() {
         <div className="max-w-7xl mx-auto px-5 md:px-8">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-10 md:gap-16 items-center">
             <div className="md:col-span-6 relative rounded-2xl overflow-hidden h-[320px] md:h-[440px]">
-              <img src={`${IMG_POOL}?w=1000&q=80&auto=format&fit=crop`} alt="Infinity pool at Sea Eagle Beach Resort" className="absolute inset-0 w-full h-full object-cover" />
+              <img src={`${IMG_POOL}?w=1000&q=80&auto=format&fit=crop`} alt="Infinity pool at AquaVerde" className="absolute inset-0 w-full h-full object-cover" />
             </div>
             <div className="md:col-span-6 space-y-9">
               {[

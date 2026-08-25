@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { todayInManila } from '@/lib/bookingDates'
+import { useResortSettings } from '@/hooks/useResortSettings'
 import { useRouter } from 'next/navigation'
 import WalkInPage from './WalkInPage'
 import CheckInOutPage from './CheckInOutPage'
@@ -67,6 +69,7 @@ interface TransactionCounts {
 export default function DashboardPage() {
   const router = useRouter()
   const supabase = createClient()
+  const { settings: resortSettings } = useResortSettings()
   const [page, setPage] = useState('dashboard')
   const [stats, setStats] = useState<Stats | null>(null)
   const [rooms, setRooms] = useState<any[]>([])
@@ -115,7 +118,7 @@ export default function DashboardPage() {
   const [pendingCheckoutCount, setPendingCheckoutCount] = useState(0)
 
   async function loadPendingCheckInOutCounts() {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayInManila()
     const [{ count: checkinCount }, { count: checkoutCount }] = await Promise.all([
       supabase.from('bookings')
         .select('id', { count: 'exact', head: true })
@@ -487,8 +490,8 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             <span className="text-xl">🌊</span>
             <div>
-              <div className="text-sm font-semibold text-gray-800">Sea Eagle</div>
-              <div className="text-xs text-gray-400">Beach Resort</div>
+              <div className="text-sm font-semibold text-gray-800">{resortSettings.resort_name}</div>
+              <div className="text-xs text-gray-400">Management System</div>
             </div>
           </div>
         </div>

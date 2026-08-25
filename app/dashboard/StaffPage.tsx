@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { todayInManila } from '@/lib/bookingDates'
 
 const ROLE_OPTIONS = [
   { value: 'super_admin',  label: 'Super Admin' },
@@ -26,7 +27,7 @@ export default function StaffPage() {
   const [form, setForm] = useState({
     email: '', password: '', full_name: '', role: 'front_desk',
     department: '', position: '', shift: 'AM',
-    hire_date: new Date().toISOString().slice(0, 10),
+    hire_date: todayInManila(),
   })
 
   async function load() {
@@ -52,7 +53,7 @@ export default function StaffPage() {
     setForm({
       email: '', password: '', full_name: '', role: 'front_desk',
       department: '', position: '', shift: 'AM',
-      hire_date: new Date().toISOString().slice(0, 10),
+      hire_date: todayInManila(),
     })
     setShowForm(true)
   }
@@ -64,7 +65,7 @@ export default function StaffPage() {
       full_name: (s.profiles as any)?.full_name ?? '',
       role: (s.profiles as any)?.role ?? 'front_desk',
       department: s.department ?? '', position: s.position ?? '',
-      shift: s.shift ?? 'AM', hire_date: s.hire_date ?? new Date().toISOString().slice(0, 10),
+      shift: s.shift ?? 'AM', hire_date: s.hire_date ?? todayInManila(),
     })
     setShowForm(true)
   }

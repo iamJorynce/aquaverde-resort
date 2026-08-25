@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { todayInManila } from '@/lib/bookingDates'
 import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import { logActivity } from './activityLog'
 import { usePermissions } from './permissions'
@@ -266,8 +267,8 @@ const { data: dayUseBooking, error: bookingError } = await supabase.from('bookin
   num_children: totalChildren,
   num_seniors:  totalSeniors,
   num_pwd:      totalPwd,
-  check_in_date: new Date().toISOString().slice(0, 10),
-  check_out_date: new Date().toISOString().slice(0, 10),
+  check_in_date: todayInManila(),
+  check_out_date: todayInManila(),
   total_amount: total,
   amount_paid: total,
   payment_status: 'paid',

@@ -9,18 +9,24 @@ export interface ResortSettings {
   address: string
   check_in_time: string
   check_out_time: string
+  gcash_number: string
+  bank_name: string
+  bank_account_number: string
 }
 
 // Same shape/values as lib/resort-settings.ts DEFAULT_RESORT_SETTINGS — kept
 // as a plain literal here so client components render sensible receipt/
 // header text immediately, before the /api/settings fetch resolves.
 const FALLBACK: ResortSettings = {
-  resort_name: 'Sea Eagles Beach Resort',
+  resort_name: 'AquaVerde Beach Resort',
   contact: '+63 912 345 6789',
   email: 'info@aquaverde.ph',
   address: 'Sarangani, South Cotabato, PH',
   check_in_time: '2:00 PM',
   check_out_time: '12:00 PM',
+  gcash_number: '',
+  bank_name: '',
+  bank_account_number: '',
 }
 
 export function useResortSettings() {
@@ -42,6 +48,9 @@ export function useResortSettings() {
           address: d.address ?? FALLBACK.address,
           check_in_time: d.check_in_time ?? FALLBACK.check_in_time,
           check_out_time: d.check_out_time ?? FALLBACK.check_out_time,
+          gcash_number: d.gcash_number ?? FALLBACK.gcash_number,
+          bank_name: d.bank_name ?? FALLBACK.bank_name,
+          bank_account_number: d.bank_account_number ?? FALLBACK.bank_account_number,
         })
       })
       .catch(() => {

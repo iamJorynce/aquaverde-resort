@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { todayInManila } from '@/lib/bookingDates'
 import { printReceipt } from './receipt'
 import { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import PaymentCalculator from './PaymentCalculator'
@@ -97,7 +98,7 @@ export default function CheckInOutPage() {
   // ---- Load ----
   async function load() {
     setLoading(true)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayInManila()
 
     const [{ data: checkins }, { data: active }, { data: checkouts }, { data: dayUse }] = await Promise.all([
       supabase.from('bookings')

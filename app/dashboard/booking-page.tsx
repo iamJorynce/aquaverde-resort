@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { todayInManila, addDaysInManila } from '@/lib/bookingDates'
 import { useResortSettings } from '@/hooks/useResortSettings'
 
 interface RoomType {
@@ -31,8 +32,8 @@ export default function BookingPage() {
   const [proofPreview, setProofPreview] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
 
-  const today    = new Date().toISOString().slice(0, 10)
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+  const today    = todayInManila()
+  const tomorrow = addDaysInManila(1)
 
   // Compress image client-side before upload — targets ~300KB max
   async function compressImage(file: File): Promise<File> {
@@ -534,15 +535,15 @@ total_amount: rl.amount,
               {form.payment_method === 'gcash' ? (
                 <div className="bg-gray-50 rounded-xl p-4 text-sm">
                   <div className="font-medium text-gray-700 mb-1">Send payment to:</div>
-                  <div className="text-gray-600">GCash: <strong>0912 345 6789</strong></div>
+                  <div className="text-gray-600">GCash: <strong>{resortSettings.gcash_number || '—'}</strong></div>
                   <div className="text-gray-600">Account Name: <strong>{resortSettings.resort_name}</strong></div>
                 </div>
               ) : (
                 <div className="bg-gray-50 rounded-xl p-4 text-sm">
                   <div className="font-medium text-gray-700 mb-1">Bank Transfer Details:</div>
-                  <div className="text-gray-600">Bank: <strong>BDO</strong></div>
+                  <div className="text-gray-600">Bank: <strong>{resortSettings.bank_name || '—'}</strong></div>
                   <div className="text-gray-600">Account Name: <strong>{resortSettings.resort_name}</strong></div>
-                  <div className="text-gray-600">Account Number: <strong>1234-5678-9012</strong></div>
+                  <div className="text-gray-600">Account Number: <strong>{resortSettings.bank_account_number || '—'}</strong></div>
                 </div>
               )}
 

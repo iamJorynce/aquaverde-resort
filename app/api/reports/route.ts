@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
+import { todayInManila } from '@/lib/bookingDates'
 
 export async function GET(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
@@ -9,8 +10,8 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url)
   const type  = searchParams.get('type') ?? 'daily'
-  const from  = searchParams.get('from') ?? new Date().toISOString().slice(0, 10)
-  const to    = searchParams.get('to')   ?? new Date().toISOString().slice(0, 10)
+  const from  = searchParams.get('from') ?? todayInManila()
+  const to    = searchParams.get('to')   ?? todayInManila()
 
   const [
     { data: revenue },

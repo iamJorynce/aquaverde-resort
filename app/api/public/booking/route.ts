@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { randomUUID } from 'crypto'
 import { createServiceClient } from '@/lib/supabase/service'
 import { ok, err } from '@/lib/api-helpers'
-import { nightsBetween } from '@/lib/bookingDates'
+import { nightsBetween, todayInManila } from '@/lib/bookingDates'
 import { rateLimit, getClientIp } from '@/lib/rate-limit'
 import { isValidEmail, isValidPhone } from '@/lib/validation'
 
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
   if (!payment_proof_url) return err('Payment proof is required')
   if (!payment_reference) return err('Payment reference is required')
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayInManila()
   if (check_in_date < today) return err('Check-in date cannot be in the past')
 
   // ---- Rate limit: this endpoint is unauthenticated, so anyone can call it

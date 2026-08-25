@@ -1,16 +1,18 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { getResortSettings } from '@/lib/resort-settings'
 import TideLine from '@/components/public/TideLine'
 
 // Verified real Unsplash CDN URLs (confirmed via direct fetch — do not
 // swap these for guessed IDs, they must be re-verified the same way).
-const IMG_POOL_AERIAL = 'https://images.unsplash.com/photo-1526865046467-312f4d616a42'
+const IMG_POOL_AERIAL = '/images/pool.jpg'
 const IMG_COTTAGES    = 'https://images.unsplash.com/photo-1756573345813-7caa2f412606'
 const IMG_ROOM        = 'https://images.unsplash.com/photo-1746549855427-57e6da7040db'
 const IMG_SUNSET      = 'https://images.unsplash.com/photo-1587942342372-238de24880a0'
 
 export default async function HomePage() {
   const supabase = await createClient()
+  const settings = await getResortSettings()
   const { data: roomTypes } = await supabase
     .from('room_types_config')
     .select('id, name, base_rate, max_capacity, description, type')
@@ -35,7 +37,7 @@ export default async function HomePage() {
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 text-white/80 text-[12.5px] tracking-[0.2em] uppercase mb-6" style={{ fontFamily: 'Work Sans, sans-serif' }}>
               <span className="w-6 h-px bg-white/50" />
-              Mabini, Davao de Oro, PH
+              {settings.address}
             </div>
             <h1 className="text-white text-[42px] leading-[1.08] md:text-[68px] md:leading-[1.05] mb-6" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, letterSpacing: '-0.01em' }}>
               Where the tide<br />sets the pace.
@@ -60,7 +62,7 @@ export default async function HomePage() {
       <section className="py-24 md:py-32" style={{ background: '#FAF6EF' }}>
         <div className="max-w-3xl mx-auto px-5 md:px-8 text-center">
           <div className="text-[13px] tracking-[0.2em] uppercase mb-6" style={{ fontFamily: 'Work Sans, sans-serif', color: '#C97B4A' }}>
-            Welcome to Sea Eagle Beach Resort
+            Welcome to {settings.resort_name}
           </div>
           <p className="text-[26px] md:text-[34px] leading-[1.4]" style={{ fontFamily: 'Fraunces, serif', fontWeight: 400, color: '#1A2E2B' }}>
             Every room opens to the sound of water. Every evening ends the same way —

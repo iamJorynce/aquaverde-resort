@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { addDaysInManila } from '@/lib/bookingDates'
 
 interface CreateInvoiceParams {
   booking_id: string
@@ -47,7 +48,7 @@ export async function createOrUpdateInvoice(
   } else {
     // Create new invoice (e.g. on walk-in registration)
     const invoiceNumber = `INV-${Date.now().toString().slice(-8)}`
-    const due_date = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+    const due_date = addDaysInManila(7)
 
     const { data, error } = await supabase
       .from('invoices')

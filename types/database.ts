@@ -1606,6 +1606,9 @@ export type Database = {
           address: string | null
           check_in_time: string | null
           check_out_time: string | null
+          gcash_number: string | null
+          bank_name: string | null
+          bank_account_number: string | null
           updated_at: string | null
           updated_by: string | null
         }
@@ -1617,6 +1620,9 @@ export type Database = {
           address?: string | null
           check_in_time?: string | null
           check_out_time?: string | null
+          gcash_number?: string | null
+          bank_name?: string | null
+          bank_account_number?: string | null
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -1628,6 +1634,9 @@ export type Database = {
           address?: string | null
           check_in_time?: string | null
           check_out_time?: string | null
+          gcash_number?: string | null
+          bank_name?: string | null
+          bank_account_number?: string | null
           updated_at?: string | null
           updated_by?: string | null
         }

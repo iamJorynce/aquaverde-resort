@@ -10,12 +10,12 @@ export default async function Footer() {
         <div className="md:col-span-5">
           <div className="flex items-center gap-2.5 mb-5">
             <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #C97B4A 0%, #1F6E63 100%)' }}>
-              <span className="text-white text-sm" style={{ fontFamily: 'Fraunces, serif' }}>SE</span>
+              <span className="text-white text-sm" style={{ fontFamily: 'Fraunces, serif' }}>AV</span>
             </div>
-            <span className="text-white text-lg" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>Sea Eagle Beach Resort</span>
+            <span className="text-white text-lg" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>{settings.resort_name}</span>
           </div>
           <p className="text-[14.5px] leading-relaxed max-w-sm" style={{ fontFamily: 'Work Sans, sans-serif' }}>
-            A quiet stretch of coastline in Mabini, Davao de Oro — where the tide sets the schedule
+            A quiet stretch of coastline in Sarangani, South Cotabato — where the tide sets the schedule
             and the only agenda is the one you bring with you.
           </p>
         </div>
@@ -42,7 +42,7 @@ export default async function Footer() {
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-5 md:px-8 py-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-[13px] opacity-50" style={{ fontFamily: 'Work Sans, sans-serif' }}>
           <span>© {new Date().getFullYear()} {settings.resort_name}. All rights reserved.</span>
-          <span>Mabini · Davao de Oro · Philippines</span>
+          <span>{settings.address}</span>
         </div>
       </div>
     </footer>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { todayInManila, addDaysInManila } from '@/lib/bookingDates'
 import { useResortSettings } from '@/hooks/useResortSettings'
 
 type ReportSection = 'dashboard' | 'financial' | 'bookings' | 'inventory' | 'staff' | 'audit'
@@ -10,8 +11,8 @@ export default function ReportsPage() {
   const supabase = createClient()
   const { settings: resortSettings } = useResortSettings()
   const [section, setSection] = useState<ReportSection>('dashboard')
-  const [from, setFrom] = useState(new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10))
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10))
+  const [from, setFrom] = useState(addDaysInManila(-7))
+  const [to, setTo] = useState(todayInManila())
   const [loading, setLoading] = useState(false)
 
   // ---- Dashboard Summary ----

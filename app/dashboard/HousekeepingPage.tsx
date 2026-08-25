@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { todayInManila } from '@/lib/bookingDates'
 import { usePermissions } from './permissions'
 import { logActivity } from './activityLog'
 
@@ -74,7 +75,7 @@ export default function HousekeepingPage() {
     e.preventDefault()
     if (!form.room_id) { showToast('Please select a room.'); return }
 
-    const taskNumber = `HK-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-4)}`
+    const taskNumber = `HK-${todayInManila().replace(/-/g,'')}-${Date.now().toString().slice(-4)}`
 
     const { error } = await supabase.from('housekeeping_tasks').insert({
       task_number: taskNumber,

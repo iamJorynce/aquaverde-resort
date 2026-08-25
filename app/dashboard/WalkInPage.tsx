@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { todayInManila, addDaysInManila } from '@/lib/bookingDates'
 import { printReceipt } from './receipt'
 import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import { logActivity } from './activityLog'
@@ -42,7 +43,7 @@ export default function WalkInPage() {
     // today, there's nothing to pick. Only "advance" bookings (reserving
     // for a future date) need an editable check-in date.
     if (type === 'walkin') {
-      setForm(p => ({ ...p, check_in_date: new Date().toISOString().slice(0, 10) }))
+      setForm(p => ({ ...p, check_in_date: todayInManila() }))
     }
   }
 
@@ -51,8 +52,8 @@ export default function WalkInPage() {
     num_adults: 1, num_children: 0,
     room_ids: [] as string[],           // ← multiple rooms now
     cottage_ids: [] as string[],
-    check_in_date:  new Date().toISOString().slice(0, 10),
-    check_out_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+    check_in_date:  todayInManila(),
+    check_out_date: addDaysInManila(1),
     special_requests: '',
     equipment_selections: {} as Record<string, { selected: boolean; quantity: number; rateType: 'hourly' | 'daily'; units: number }>,
   })
@@ -143,7 +144,7 @@ export default function WalkInPage() {
     // mid-cleaning from a day-use guest that just left), which the
     // booking-overlap query alone might miss. For a range that doesn't
     // include today, only an actual overlapping booking should block it.
-    const todayStr = new Date().toISOString().slice(0, 10)
+    const todayStr = todayInManila()
     const rangeIncludesToday = form.check_in_date <= todayStr && todayStr < form.check_out_date
     const blockedCottageStatuses = rangeIncludesToday
       ? ['maintenance', 'occupied', 'cleaning']
@@ -550,8 +551,8 @@ export default function WalkInPage() {
       setForm({
         full_name: '', phone: '', email: '', num_adults: 1, num_children: 0,
         room_ids: [], cottage_ids: [],
-        check_in_date: new Date().toISOString().slice(0, 10),
-        check_out_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+        check_in_date: todayInManila(),
+        check_out_date: addDaysInManila(1),
         special_requests: '', equipment_selections: {},
       })
       setPayment({ method: 'cash', amountTendered: 0 })

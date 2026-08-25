@@ -10,6 +10,9 @@ type FormState = {
   address: string
   check_in_time: string
   check_out_time: string
+  gcash_number: string
+  bank_name: string
+  bank_account_number: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -19,6 +22,9 @@ const EMPTY_FORM: FormState = {
   address: '',
   check_in_time: '',
   check_out_time: '',
+  gcash_number: '',
+  bank_name: '',
+  bank_account_number: '',
 }
 
 // Roles derived from permissions.ts instead of hardcoded, so this table can
@@ -64,6 +70,9 @@ export default function SettingsPage() {
           address: d.address ?? '',
           check_in_time: d.check_in_time ?? '',
           check_out_time: d.check_out_time ?? '',
+          gcash_number: d.gcash_number ?? '',
+          bank_name: d.bank_name ?? '',
+          bank_account_number: d.bank_account_number ?? '',
         })
       })
       .catch(() => !cancelled && setError('Failed to load settings'))
@@ -117,6 +126,30 @@ export default function SettingsPage() {
               />
             </div>
           ))}
+
+          <div className="pt-2 mt-1 border-t border-gray-100">
+            <div className="text-xs font-medium text-gray-700 mb-2">Payment Details</div>
+            <p className="text-[11px] text-gray-400 mb-3">
+              Shown to guests at checkout under &ldquo;Send payment to&rdquo; — keep this
+              accurate, guests send money here directly.
+            </p>
+          </div>
+          {[
+            { key: 'gcash_number', label: 'GCash Number' },
+            { key: 'bank_name', label: 'Bank Name' },
+            { key: 'bank_account_number', label: 'Bank Account Number' },
+          ].map(f => (
+            <div key={f.key}>
+              <label className="block text-xs text-gray-500 mb-1">{f.label}</label>
+              <input
+                value={(form as any)[f.key]}
+                onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+                disabled={loading}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white disabled:bg-gray-50"
+              />
+            </div>
+          ))}
+
           <button
             onClick={save}
             disabled={loading || saving}

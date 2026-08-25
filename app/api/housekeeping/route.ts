@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
+import { todayInManila } from '@/lib/bookingDates'
 
 export async function GET(request: NextRequest) {
   const { supabase, profile } = await getSupabaseAndUser()
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
 
-  const taskNumber = `HK-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-4)}`
+  const taskNumber = `HK-${todayInManila().replace(/-/g,'')}-${Date.now().toString().slice(-4)}`
 
   const { data, error } = await supabase
     .from('housekeeping_tasks')
