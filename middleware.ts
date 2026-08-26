@@ -21,7 +21,7 @@ export async function middleware(request: NextRequest) {
       },
     }
   )
- const publicPaths = ['/', '/about', '/rooms', '/contact', '/booking']
+ const publicPaths = ['/', '/about', '/rooms', '/day-use', '/contact', '/booking']
   if (publicPaths.some(p => path === p || path.startsWith('/booking/'))) {
     return NextResponse.next()
   }

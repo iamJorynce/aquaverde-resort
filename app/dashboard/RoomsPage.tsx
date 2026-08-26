@@ -346,7 +346,7 @@ export default function RoomsPage() {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white resize-none"
               />
               <p className="text-[11px] text-gray-400 mt-1">
-                Paste a photo link (one per line for multiple). The first one shows on the public Rooms &amp; Rates page.
+                Paste a photo link (one per line for multiple). All photos show as a swipeable gallery on the public Rooms &amp; Rates page.
               </p>
               {typeForm.image_urls.split('\n').map(u => u.trim()).filter(Boolean)[0] && (
                 <img

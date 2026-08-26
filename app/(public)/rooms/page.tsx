@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { getResortSettings } from '@/lib/resort-settings'
 import TideLine from '@/components/public/TideLine'
+import RoomGallery from '@/components/public/RoomGallery'
 
 const IMG_ROOM     = 'https://images.unsplash.com/photo-1746549855427-57e6da7040db'
 const IMG_COTTAGES = 'https://images.unsplash.com/photo-1756573345813-7caa2f412606'
@@ -67,10 +68,10 @@ export default async function RoomsPage() {
                 return (
                   <div key={rt.id} className="rounded-2xl overflow-hidden flex flex-col md:flex-row" style={{ background: '#fff' }}>
                     <div className="md:w-72 h-56 md:h-auto flex-shrink-0 relative">
-                      <img
-                        src={rt.image_urls?.[0] || `${[IMG_ROOM, IMG_COTTAGES][i % 2]}?w=700&q=80&auto=format&fit=crop`}
+                      <RoomGallery
+                        images={rt.image_urls?.length ? rt.image_urls : [`${[IMG_ROOM, IMG_COTTAGES][i % 2]}?w=700&q=80&auto=format&fit=crop`]}
                         alt={rt.name}
-                        className="absolute inset-0 w-full h-full object-cover"
+                        className="absolute inset-0 w-full h-full"
                       />
                     </div>
                     <div className="p-6 md:p-8 flex-1">
