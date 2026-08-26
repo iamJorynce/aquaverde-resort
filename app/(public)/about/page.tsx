@@ -24,7 +24,7 @@ export default async function AboutPage() {
       <section className="py-24 md:py-28" style={{ background: '#FAF6EF' }}>
         <div className="max-w-3xl mx-auto px-5 md:px-8">
           <p className="text-[22px] md:text-[28px] leading-[1.5] mb-8" style={{ fontFamily: 'Fraunces, serif', fontWeight: 400, color: '#1A2E2B' }}>
-            AquaVerde began as a simple idea — a place where the pace of the tide
+            {settings.resort_name} began as a simple idea — a place where the pace of the tide
             replaces the pace of everything else.
           </p>
           <div className="space-y-5 text-[15.5px] leading-relaxed" style={{ fontFamily: 'Work Sans, sans-serif', color: '#5C5240' }}>
