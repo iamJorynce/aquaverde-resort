@@ -32,71 +32,106 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-950 via-blue-900 to-cyan-900">
-      {/* Background wave overlay */}
-      <div className="absolute inset-0 opacity-10"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 320'%3E%3Cpath fill='%23ffffff' d='M0,160L48,176C96,192,192,224,288,213.3C384,203,480,149,576,138.7C672,128,768,160,864,186.7C960,213,1056,235,1152,224C1248,213,1344,171,1392,149.3L1440,128L1440,320L0,320Z'/%3E%3C/svg%3E")`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'bottom',
-        }}
+    <div
+      className="min-h-screen flex items-center justify-center relative overflow-hidden"
+      style={{ background: 'linear-gradient(160deg, #0F2626 0%, #163434 55%, #0C1F1F 100%)' }}
+    >
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      <link
+        href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Work+Sans:wght@400;500;600&display=swap"
+        rel="stylesheet"
+      />
+      {/* Ambient glow accents, echoing the navbar gradient */}
+      <div
+        className="absolute -top-32 -left-24 w-[420px] h-[420px] rounded-full blur-3xl opacity-20 pointer-events-none"
+        style={{ background: '#C97B4A' }}
+      />
+      <div
+        className="absolute -bottom-40 -right-24 w-[480px] h-[480px] rounded-full blur-3xl opacity-20 pointer-events-none"
+        style={{ background: '#1F6E63' }}
       />
 
       <div className="relative w-full max-w-md px-6">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur mb-4">
-            <span className="text-3xl">🌊</span>
+          <div
+            className="inline-flex items-center justify-center w-14 h-14 md:w-16 md:h-16 rounded-full mb-4"
+            style={{ background: 'linear-gradient(135deg, #C97B4A 0%, #1F6E63 100%)' }}
+          >
+            <span className="text-white text-xl md:text-2xl" style={{ fontFamily: 'Fraunces, serif' }}>
+              {resortSettings.resort_name.trim().slice(0, 2).toUpperCase()}
+            </span>
           </div>
-          <h1 className="text-2xl font-semibold text-white">{resortSettings.resort_name}</h1>
-          <p className="text-blue-200 text-sm mt-1">Management System</p>
+          <h1
+            className="text-2xl md:text-[28px] text-white tracking-wide"
+            style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}
+          >
+            {resortSettings.resort_name}
+          </h1>
+          <p
+            className="text-white/60 text-sm mt-1.5 tracking-wide"
+            style={{ fontFamily: 'Work Sans, sans-serif' }}
+          >
+            Management System
+          </p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <h2 className="text-lg font-semibold text-gray-800 mb-6">Sign in to your account</h2>
+        <div
+          className="rounded-2xl p-8 shadow-2xl"
+          style={{ background: '#FAF6EF' }}
+        >
+          <h2
+            className="text-lg mb-6 text-[#0F2626]"
+            style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}
+          >
+            Sign in to your account
+          </h2>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+            <div className="mb-4 p-3 bg-[#C97B4A]/10 border border-[#C97B4A]/30 rounded-lg text-[#B15A2B] text-sm"
+              style={{ fontFamily: 'Work Sans, sans-serif' }}>
               {error}
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-4" style={{ fontFamily: 'Work Sans, sans-serif' }}>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <label className="block text-sm font-medium text-[#0F2626]/80 mb-1">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="you@resort.com"
                 required
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2.5 border border-black/10 rounded-lg text-sm text-[#0F2626] bg-white focus:outline-none focus:ring-2 focus:ring-[#1F6E63] focus:border-transparent"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <label className="block text-sm font-medium text-[#0F2626]/80 mb-1">Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2.5 border border-black/10 rounded-lg text-sm text-[#0F2626] bg-white focus:outline-none focus:ring-2 focus:ring-[#1F6E63] focus:border-transparent"
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-400 text-white text-sm font-medium rounded-lg transition-colors"
+              className="w-full py-2.5 px-4 rounded-full text-sm font-medium tracking-wide transition-all hover:brightness-110 disabled:opacity-60 text-white"
+              style={{ background: '#C97B4A', fontFamily: 'Work Sans, sans-serif' }}
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
 
-          <p className="text-center text-xs text-gray-400 mt-6">
+          <p className="text-center text-xs text-[#0F2626]/40 mt-6" style={{ fontFamily: 'Work Sans, sans-serif' }}>
             {resortSettings.resort_name} Management System v1.0
           </p>
         </div>

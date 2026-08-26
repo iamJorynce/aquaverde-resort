@@ -2,11 +2,13 @@ import { NextRequest } from 'next/server'
 import { getSupabaseAndUser, ok, err, unauthorized, forbidden, requireRole } from '@/lib/api-helpers'
 
 export async function GET() {
-  const { supabase, profile } = await getSupabaseAndUser()
-  if (!profile) return unauthorized()
-  // Any logged-in staff member can read settings (front desk, cashier, etc.
-  // all need resort_name/check-in-out time for receipts). Only PATCH below
-  // is restricted to super_admin/resort_owner.
+  const { supabase } = await getSupabaseAndUser()
+  // No auth check here on purpose: resort_name/check-in-out/contact info is
+  // public (shown on the login page, guest receipts, confirmation emails,
+  // the public site, etc.). The resort_settings_select RLS policy already
+  // grants SELECT to both `anon` and `authenticated`, so this just lets the
+  // API route match what the database already allows. PATCH below stays
+  // restricted to super_admin/resort_owner.
 
   const { data, error } = await supabase
     .from('resort_settings')
