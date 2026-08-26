@@ -1,8 +1,8 @@
 import TideLine from '@/components/public/TideLine'
 import { getResortSettings } from '@/lib/resort-settings'
 
-const IMG_COTTAGES = 'https://images.unsplash.com/photo-1756573345813-7caa2f412606'
-const IMG_POOL      = 'https://images.unsplash.com/photo-1526865046467-312f4d616a42'
+const IMG_COTTAGES = 'https://images.trvl-media.com/lodging/115000000/114410000/114404400/114404355/19c38da4.jpg?impolicy=resizecrop&rw=1200&ra=fit'
+const IMG_POOL      = 'https://images.trvl-media.com/lodging/115000000/114410000/114404400/114404355/f345d1cd.jpg?impolicy=resizecrop&rw=1200&ra=fit'
 
 export default async function AboutPage() {
   const settings = await getResortSettings()

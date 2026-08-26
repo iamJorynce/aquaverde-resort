@@ -47,12 +47,13 @@ export default function Navbar() {
         <div className="max-w-7xl mx-auto px-5 md:px-8">
           <div className="flex items-center justify-between h-[72px] md:h-20">
             <Link href="/" className="flex items-center gap-2.5">
-              <div
-                className="w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center flex-shrink-0"
-                style={{ background: 'linear-gradient(135deg, #C97B4A 0%, #1F6E63 100%)' }}
-              >
-                <span className="text-white text-sm md:text-base" style={{ fontFamily: 'Fraunces, serif' }}>AV</span>
-              </div>
+              <div className="w-9 h-9 md:w-10 md:h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
+  <img
+    src="/images/logo.png"
+    alt="AquaVerde Resort"
+    className="w-full h-full object-cover"
+  />
+</div>
               <span className="text-white tracking-wide text-[15px] md:text-lg leading-none" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>
                 {settings.resort_name}
               </span>

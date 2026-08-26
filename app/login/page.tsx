@@ -54,28 +54,36 @@ export default function LoginPage() {
 
       <div className="relative w-full max-w-md px-6">
         {/* Logo */}
-        <div className="text-center mb-8">
-          <div
-            className="inline-flex items-center justify-center w-14 h-14 md:w-16 md:h-16 rounded-full mb-4"
-            style={{ background: 'linear-gradient(135deg, #C97B4A 0%, #1F6E63 100%)' }}
-          >
-            <span className="text-white text-xl md:text-2xl" style={{ fontFamily: 'Fraunces, serif' }}>
-              {resortSettings.resort_name.trim().slice(0, 2).toUpperCase()}
-            </span>
-          </div>
-          <h1
-            className="text-2xl md:text-[28px] text-white tracking-wide"
-            style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}
-          >
-            {resortSettings.resort_name}
-          </h1>
-          <p
-            className="text-white/60 text-sm mt-1.5 tracking-wide"
-            style={{ fontFamily: 'Work Sans, sans-serif' }}
-          >
-            Management System
-          </p>
-        </div>
+       
+<div className="text-center mb-8">
+  <div
+    className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-full mb-4 bg-white overflow-hidden shadow-sm"
+  >
+    <img
+      src="/images/logo.png"
+      alt={resortSettings.resort_name}
+      className="w-full h-full object-contain p-2"
+    />
+  </div>
+
+  <h1
+    className="text-2xl md:text-[28px] text-white tracking-wide"
+    style={{
+      fontFamily: 'Fraunces, serif',
+      fontWeight: 500,
+    }}
+  >
+    {resortSettings.resort_name}
+  </h1>
+
+  <p
+    className="text-white/60 text-sm mt-1.5 tracking-wide"
+    style={{
+      fontFamily: 'Work Sans, sans-serif',
+    }}
+  >
+  </p>
+</div>
 
         {/* Card */}
         <div
@@ -132,7 +140,7 @@ export default function LoginPage() {
           </form>
 
           <p className="text-center text-xs text-[#0F2626]/40 mt-6" style={{ fontFamily: 'Work Sans, sans-serif' }}>
-            {resortSettings.resort_name} Management System v1.0
+            Forgot your password? Please contact the resort administrator for assistance.
           </p>
         </div>
       </div>

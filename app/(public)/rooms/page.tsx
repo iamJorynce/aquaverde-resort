@@ -68,7 +68,7 @@ export default async function RoomsPage() {
                   <div key={rt.id} className="rounded-2xl overflow-hidden flex flex-col md:flex-row" style={{ background: '#fff' }}>
                     <div className="md:w-72 h-56 md:h-auto flex-shrink-0 relative">
                       <img
-                        src={`${[IMG_ROOM, IMG_COTTAGES][i % 2]}?w=700&q=80&auto=format&fit=crop`}
+                        src={rt.image_urls?.[0] || `${[IMG_ROOM, IMG_COTTAGES][i % 2]}?w=700&q=80&auto=format&fit=crop`}
                         alt={rt.name}
                         className="absolute inset-0 w-full h-full object-cover"
                       />

@@ -29,7 +29,7 @@ export default function RoomsPage() {
 
   const [showTypeForm, setShowTypeForm] = useState(false)
   const [editingType, setEditingType] = useState<any>(null)
-  const [typeForm, setTypeForm] = useState({ name: '', type: 'standard', base_rate: 0, max_capacity: 2, description: '' })
+  const [typeForm, setTypeForm] = useState({ name: '', type: 'standard', base_rate: 0, max_capacity: 2, description: '', image_urls: '' })
 
   async function load() {
     setLoading(true)
@@ -99,7 +99,7 @@ export default function RoomsPage() {
   // ---- Room Type CRUD ----
   function openNewType() {
     setEditingType(null)
-    setTypeForm({ name: '', type: 'standard', base_rate: 0, max_capacity: 2, description: '' })
+    setTypeForm({ name: '', type: 'standard', base_rate: 0, max_capacity: 2, description: '', image_urls: '' })
     setShowTypeForm(true)
   }
 
@@ -108,6 +108,7 @@ export default function RoomsPage() {
     setTypeForm({
       name: rt.name, type: rt.type, base_rate: rt.base_rate,
       max_capacity: rt.max_capacity, description: rt.description ?? '',
+      image_urls: (rt.image_urls ?? []).join('\n'),
     })
     setShowTypeForm(true)
   }
@@ -119,12 +120,18 @@ export default function RoomsPage() {
       return
     }
 
+    const { image_urls, ...rest } = typeForm
+    const payload = {
+      ...rest,
+      image_urls: image_urls.split('\n').map(u => u.trim()).filter(Boolean),
+    }
+
     if (editingType) {
-      const { error } = await supabase.from('room_types_config').update(typeForm).eq('id', editingType.id)
+      const { error } = await supabase.from('room_types_config').update(payload).eq('id', editingType.id)
       if (error) { showToast('Error: ' + error.message); return }
       showToast(`${typeForm.name} updated.`)
     } else {
-      const { error } = await supabase.from('room_types_config').insert(typeForm)
+      const { error } = await supabase.from('room_types_config').insert(payload)
       if (error) { showToast('Error: ' + error.message); return }
       showToast(`${typeForm.name} added.`)
     }
@@ -172,6 +179,11 @@ export default function RoomsPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {roomTypes.map(rt => (
             <div key={rt.id} className="border border-gray-100 rounded-lg p-2.5">
+              {rt.image_urls?.[0] ? (
+                <img src={rt.image_urls[0]} alt={rt.name} className="w-full h-20 object-cover rounded-md mb-1.5 bg-gray-50" />
+              ) : (
+                <div className="w-full h-20 rounded-md mb-1.5 bg-gray-50 flex items-center justify-center text-[10px] text-gray-300">No image</div>
+              )}
               <div className="text-sm font-medium text-gray-700">{rt.name}</div>
               <div className="text-xs text-gray-400">₱{Number(rt.base_rate).toLocaleString()}/night · {rt.max_capacity} pax</div>
               {canManage && (
@@ -323,6 +335,27 @@ export default function RoomsPage() {
               <label className="block text-xs text-gray-500 mb-1">Description</label>
               <input value={typeForm.description} onChange={e => setTypeForm(p => ({ ...p, description: e.target.value }))}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Image URL(s)</label>
+              <textarea
+                value={typeForm.image_urls}
+                onChange={e => setTypeForm(p => ({ ...p, image_urls: e.target.value }))}
+                placeholder={'https://example.com/room-photo.jpg'}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white resize-none"
+              />
+              <p className="text-[11px] text-gray-400 mt-1">
+                Paste a photo link (one per line for multiple). The first one shows on the public Rooms &amp; Rates page.
+              </p>
+              {typeForm.image_urls.split('\n').map(u => u.trim()).filter(Boolean)[0] && (
+                <img
+                  src={typeForm.image_urls.split('\n').map(u => u.trim()).filter(Boolean)[0]}
+                  alt="Preview"
+                  className="mt-2 w-full h-28 object-cover rounded-lg bg-gray-50"
+                  onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                />
+              )}
             </div>
             <div className="flex gap-2 pt-1">
               <button type="submit" className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm rounded-lg">

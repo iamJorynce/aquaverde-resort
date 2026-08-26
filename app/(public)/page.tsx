@@ -5,20 +5,32 @@ import TideLine from '@/components/public/TideLine'
 
 // Verified real Unsplash CDN URLs (confirmed via direct fetch — do not
 // swap these for guessed IDs, they must be re-verified the same way).
-const IMG_POOL_AERIAL = 'https://images.unsplash.com/photo-1526865046467-312f4d616a42'
-const IMG_COTTAGES    = 'https://images.unsplash.com/photo-1756573345813-7caa2f412606'
+const IMG_POOL_AERIAL = 'https://images.trvl-media.com/lodging/115000000/114410000/114404400/114404355/f345d1cd.jpg?impolicy=resizecrop&rw=1200&ra=fit'
+const IMG_COTTAGES    = 'https://www.lamudi.com.ph/journal/wp-content/uploads/2014/09/island-philippines-resort-ingimage-small.jpg'
 const IMG_ROOM        = 'https://images.unsplash.com/photo-1746549855427-57e6da7040db'
 const IMG_SUNSET      = 'https://images.unsplash.com/photo-1587942342372-238de24880a0'
 
 export default async function HomePage() {
   const supabase = await createClient()
   const settings = await getResortSettings()
-  const { data: roomTypes } = await supabase
+  const { data: allRoomTypes } = await supabase
     .from('room_types_config')
-    .select('id, name, base_rate, max_capacity, description, type')
+    .select('id, name, base_rate, max_capacity, description, type, image_urls')
     .eq('is_active', true)
     .order('base_rate')
-    .limit(3)
+
+  // Prefer showing room types that already have a photo set, so a newly
+  // uploaded image shows up on the homepage right away instead of being
+  // hidden behind cheaper room types with no photo yet. Falls back to
+  // cheapest-first for the rest.
+  const roomTypes = (allRoomTypes ?? [])
+    .slice()
+    .sort((a, b) => {
+      const aHasImg = a.image_urls?.length ? 0 : 1
+      const bHasImg = b.image_urls?.length ? 0 : 1
+      return aHasImg - bHasImg
+    })
+    .slice(0, 3)
 
   return (
     <>
@@ -173,7 +185,7 @@ export default async function HomePage() {
                 <Link key={rt.id} href="/booking" className="group block">
                   <div className="relative rounded-2xl overflow-hidden h-64 mb-5">
                     <img
-                      src={`${[IMG_ROOM, IMG_COTTAGES, IMG_POOL_AERIAL][i % 3]}?w=800&q=80&auto=format&fit=crop`}
+                      src={rt.image_urls?.[0] || `${[IMG_ROOM, IMG_COTTAGES, IMG_POOL_AERIAL][i % 3]}?w=800&q=80&auto=format&fit=crop`}
                       alt={rt.name}
                       className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                     />
