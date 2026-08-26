@@ -10,6 +10,7 @@ type FormState = {
   address: string
   check_in_time: string
   check_out_time: string
+  facebook_url: string
   gcash_number: string
   bank_name: string
   bank_account_number: string
@@ -22,6 +23,7 @@ const EMPTY_FORM: FormState = {
   address: '',
   check_in_time: '',
   check_out_time: '',
+  facebook_url: '',
   gcash_number: '',
   bank_name: '',
   bank_account_number: '',
@@ -70,6 +72,7 @@ export default function SettingsPage() {
           address: d.address ?? '',
           check_in_time: d.check_in_time ?? '',
           check_out_time: d.check_out_time ?? '',
+          facebook_url: d.facebook_url ?? '',
           gcash_number: d.gcash_number ?? '',
           bank_name: d.bank_name ?? '',
           bank_account_number: d.bank_account_number ?? '',
@@ -115,6 +118,7 @@ export default function SettingsPage() {
             { key: 'address', label: 'Address' },
             { key: 'check_in_time', label: 'Check-in Time' },
             { key: 'check_out_time', label: 'Check-out Time' },
+            { key: 'facebook_url', label: 'Facebook Page URL' },
           ].map(f => (
             <div key={f.key}>
               <label className="block text-xs text-gray-500 mb-1">{f.label}</label>

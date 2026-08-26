@@ -33,7 +33,7 @@ export default async function ContactPage() {
                 { label: 'Address', value: `${settings.resort_name}\n${settings.address}` },
                 { label: 'Phone', value: settings.contact },
                 { label: 'Email', value: settings.email },
-                { label: 'Facebook', value: 'facebook.com/aquaverderesort' },
+                { label: 'Facebook', value: settings.facebook_url || 'Not set — add this in Settings' },
                 { label: 'Hours', value: 'Open 24/7 — front desk always staffed' },
               ].map(c => (
                 <div key={c.label}>
@@ -93,39 +93,13 @@ export default async function ContactPage() {
       </section>
 
       {/* ===== MAP ===== */}
-      <section
-  className="py-10 px-4 sm:px-6"
-  style={{ background: '#0F2626' }}
->
-  <div className="w-full max-w-4xl mx-auto">
-    <div className="text-center text-white/50">
-      <div
-        className="text-[13px] tracking-[0.15em] uppercase mb-2"
-        style={{ fontFamily: 'Work Sans, sans-serif' }}
-      >
-        Location
-      </div>
-
-      <div
-        className="text-white text-[18px]"
-        style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}
-      >
-        {settings.address}
-      </div>
-    </div>
-
-    <div className="mt-6 w-full overflow-hidden rounded-xl">
-      <iframe
-        src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d492.78013696116926!2d125.84009947540659!3d7.274839254425334!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x32f95909aa4da511%3A0x74a7570d94c5b02d!2sSea%20Eagle%20Beach%20Resort!5e1!3m2!1sen!2sph!4v1787666594277!5m2!1sen!2sph"
-        className="w-full h-[280px] sm:h-[350px]"
-        style={{ border: 0 }}
-        allowFullScreen
-        loading="lazy"
-        referrerPolicy="no-referrer-when-downgrade"
-      />
-    </div>
-  </div>
-</section>
+      <section className="h-72 flex items-center justify-center" style={{ background: '#0F2626' }}>
+        <div className="text-center text-white/50">
+          <div className="text-[13px] tracking-[0.15em] uppercase mb-2" style={{ fontFamily: 'Work Sans, sans-serif' }}>Location</div>
+          <div className="text-white text-[18px]" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>{settings.address}</div>
+          <div className="text-[13px] mt-2" style={{ fontFamily: 'Work Sans, sans-serif' }}>Add a Google Maps embed here with your exact coordinates</div>
+        </div>
+      </section>
     </>
   )
 }

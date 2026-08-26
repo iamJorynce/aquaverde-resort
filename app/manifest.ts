@@ -5,7 +5,7 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
   const settings = await getResortSettings()
   return {
     name: settings.resort_name,
-    short_name: 'AquaVerde',
+    short_name: settings.resort_name,
     description: 'Beach Resort Management System',
     start_url: '/dashboard',
     display: 'standalone',

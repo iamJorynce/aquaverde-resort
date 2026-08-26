@@ -300,14 +300,12 @@ export default function RoomsPage() {
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Category</label>
-              <select value={typeForm.type} onChange={e => setTypeForm(p => ({ ...p, type: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white">
-                <option value="standard">Standard</option>
-                <option value="deluxe">Deluxe</option>
-                <option value="superior">Superior</option>
-                <option value="suite">Suite</option>
-                <option value="family">Family</option>
-              </select>
+              <input value={typeForm.type} onChange={e => setTypeForm(p => ({ ...p, type: e.target.value }))}
+                placeholder="e.g. standard, deluxe, penthouse..."
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+              <p className="text-[11px] text-gray-400 mt-1">
+                Free text — used only as a secondary label, not restricted to a fixed list.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

@@ -5,7 +5,7 @@ import TideLine from '@/components/public/TideLine'
 
 // Verified real Unsplash CDN URLs (confirmed via direct fetch — do not
 // swap these for guessed IDs, they must be re-verified the same way).
-const IMG_POOL_AERIAL = '/images/pool.jpg'
+const IMG_POOL_AERIAL = 'https://images.unsplash.com/photo-1526865046467-312f4d616a42'
 const IMG_COTTAGES    = 'https://images.unsplash.com/photo-1756573345813-7caa2f412606'
 const IMG_ROOM        = 'https://images.unsplash.com/photo-1746549855427-57e6da7040db'
 const IMG_SUNSET      = 'https://images.unsplash.com/photo-1587942342372-238de24880a0'

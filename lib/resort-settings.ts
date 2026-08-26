@@ -11,6 +11,7 @@ export type ResortSettings = {
   gcash_number: string
   bank_name: string
   bank_account_number: string
+  facebook_url: string
 }
 
 // Used whenever the DB row can't be reached (offline, RLS misconfigured,
@@ -26,6 +27,7 @@ export const DEFAULT_RESORT_SETTINGS: ResortSettings = {
   gcash_number: '',
   bank_name: '',
   bank_account_number: '',
+  facebook_url: '',
 }
 
 // Wrapped in React's cache() so multiple components rendered in the same
@@ -36,7 +38,7 @@ export const getResortSettings = cache(async (): Promise<ResortSettings> => {
     const supabase = await createClient()
     const { data, error } = await supabase
       .from('resort_settings')
-      .select('resort_name, contact, email, address, check_in_time, check_out_time, gcash_number, bank_name, bank_account_number')
+      .select('resort_name, contact, email, address, check_in_time, check_out_time, gcash_number, bank_name, bank_account_number, facebook_url')
       .eq('id', 1)
       .single()
 
@@ -52,6 +54,7 @@ export const getResortSettings = cache(async (): Promise<ResortSettings> => {
       gcash_number: data.gcash_number ?? DEFAULT_RESORT_SETTINGS.gcash_number,
       bank_name: data.bank_name ?? DEFAULT_RESORT_SETTINGS.bank_name,
       bank_account_number: data.bank_account_number ?? DEFAULT_RESORT_SETTINGS.bank_account_number,
+      facebook_url: data.facebook_url ?? DEFAULT_RESORT_SETTINGS.facebook_url,
     }
   } catch {
     return DEFAULT_RESORT_SETTINGS

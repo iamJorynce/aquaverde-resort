@@ -25,7 +25,7 @@ export async function PATCH(request: NextRequest) {
     return forbidden()
 
   const body = await request.json()
-  const { resort_name, contact, email, address, check_in_time, check_out_time, gcash_number, bank_name, bank_account_number } = body
+  const { resort_name, contact, email, address, check_in_time, check_out_time, gcash_number, bank_name, bank_account_number, facebook_url } = body
 
   const { data, error } = await supabase
     .from('resort_settings')
@@ -39,6 +39,7 @@ export async function PATCH(request: NextRequest) {
       gcash_number,
       bank_name,
       bank_account_number,
+      facebook_url,
       updated_at: new Date().toISOString(),
       updated_by: user?.id,
     })

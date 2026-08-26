@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-
+import { useResortSettings } from '@/hooks/useResortSettings'
 
 const NAV_LINKS = [
   { href: '/', label: 'Home' },
@@ -13,6 +13,7 @@ const NAV_LINKS = [
 ]
 
 export default function Navbar() {
+  const { settings } = useResortSettings()
   const [scrolled, setScrolled] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const pathname = usePathname()
@@ -50,10 +51,10 @@ export default function Navbar() {
                 className="w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ background: 'linear-gradient(135deg, #C97B4A 0%, #1F6E63 100%)' }}
               >
-                <span className="text-white text-sm md:text-base" style={{ fontFamily: 'Fraunces, serif' }}>SE</span>
+                <span className="text-white text-sm md:text-base" style={{ fontFamily: 'Fraunces, serif' }}>AV</span>
               </div>
               <span className="text-white tracking-wide text-[15px] md:text-lg leading-none" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>
-                Sea Eagle Beach Resort
+                {settings.resort_name}
               </span>
             </Link>
 

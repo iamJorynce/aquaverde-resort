@@ -199,7 +199,7 @@ export default function StaffPage() {
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Email (used to log in)</label>
                   <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-                    placeholder="staff@yourresort.ph"
+                    placeholder="staff@aquaverde.ph"
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
                 </div>
                 <div>

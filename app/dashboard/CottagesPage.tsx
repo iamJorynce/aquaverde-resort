@@ -12,7 +12,10 @@ const statusColor: Record<string, string> = {
   maintenance: 'bg-gray-100 text-gray-700',
 }
 
-const typeLabel: Record<string, string> = {
+// Fallback labels for any legacy row that predates cottage_types_config
+// and hasn't been backfilled with a cottage_type_id yet — should not
+// normally be hit after the migration runs, but keeps display safe.
+const legacyTypeLabel: Record<string, string> = {
   open: 'Open Cottage',
   covered: 'Covered Cottage',
   family: 'Family Cottage',
@@ -27,20 +30,32 @@ export default function CottagesPage() {
   const { can } = usePermissions()
   const canManage = can('canManageCottagesCatalog')
   const [cottages, setCottages] = useState<any[]>([])
+  const [cottageTypes, setCottageTypes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<any>(null)
   const [search, setSearch] = useState('')
   const [form, setForm] = useState({
-    cottage_code: '', name: '', type: 'open', capacity: 8,
+    cottage_code: '', name: '', cottage_type_id: '', capacity: 8,
     day_rate: 0, overnight_rate: 0,
+  })
+
+  // ---- Cottage Type (category) management ----
+  const [showTypeForm, setShowTypeForm] = useState(false)
+  const [editingType, setEditingType] = useState<any>(null)
+  const [typeForm, setTypeForm] = useState({
+    name: '', max_capacity: 8, description: '',
   })
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('cottages').select('*').order('cottage_code')
-    setCottages(data ?? [])
+    const [{ data: cottageData }, { data: typeData }] = await Promise.all([
+      supabase.from('cottages').select('*, cottage_types_config(id, name)').order('cottage_code'),
+      supabase.from('cottage_types_config').select('*').eq('is_active', true).order('name'),
+    ])
+    setCottages(cottageData ?? [])
+    setCottageTypes(typeData ?? [])
     setLoading(false)
   }
 
@@ -49,6 +64,10 @@ export default function CottagesPage() {
   function showToast(msg: string) {
     setToast(msg)
     setTimeout(() => setToast(''), 3000)
+  }
+
+  function typeLabelFor(c: any): string {
+    return c.cottage_types_config?.name ?? legacyTypeLabel[c.type] ?? c.type ?? '—'
   }
 
   async function updateStatus(id: string, status: string) {
@@ -60,17 +79,26 @@ export default function CottagesPage() {
 
   function openNew() {
     setEditing(null)
-    setForm({ cottage_code: '', name: '', type: 'open', capacity: 8, day_rate: 0, overnight_rate: 0 })
+    setForm({
+      cottage_code: '', name: '',
+      cottage_type_id: cottageTypes[0]?.id ?? '',
+      capacity: 8, day_rate: 0, overnight_rate: 0,
+    })
     setShowForm(true)
   }
 
   function openEdit(c: any) {
     setEditing(c)
     setForm({
-      cottage_code: c.cottage_code, name: c.name, type: c.type,
+      cottage_code: c.cottage_code, name: c.name,
+      cottage_type_id: c.cottage_type_id ?? cottageTypes[0]?.id ?? '',
       capacity: c.capacity, day_rate: c.day_rate, overnight_rate: c.overnight_rate ?? 0,
     })
     setShowForm(true)
+  }
+
+  function onTypeChange(cottage_type_id: string) {
+    setForm(p => ({ ...p, cottage_type_id }))
   }
 
   async function saveCottage(e: React.FormEvent) {
@@ -79,13 +107,26 @@ export default function CottagesPage() {
       showToast('Code, name, and a valid day rate are required.')
       return
     }
+    if (!form.cottage_type_id) {
+      showToast('Please select a cottage type.')
+      return
+    }
+
+    const payload = {
+      cottage_code: form.cottage_code,
+      name: form.name,
+      cottage_type_id: form.cottage_type_id,
+      capacity: form.capacity,
+      day_rate: form.day_rate,
+      overnight_rate: form.overnight_rate,
+    }
 
     if (editing) {
-      const { error } = await supabase.from('cottages').update(form).eq('id', editing.id)
+      const { error } = await supabase.from('cottages').update(payload).eq('id', editing.id)
       if (error) { showToast('Error: ' + error.message); return }
       showToast(`${form.name} updated.`)
     } else {
-      const { error } = await supabase.from('cottages').insert({ ...form, status: 'available' })
+      const { error } = await supabase.from('cottages').insert({ ...payload, status: 'available' })
       if (error) { showToast('Error: ' + error.message); return }
       showToast(`${form.name} added.`)
     }
@@ -101,6 +142,51 @@ export default function CottagesPage() {
     load()
   }
 
+  // ---- Cottage Type CRUD ----
+  function openNewType() {
+    setEditingType(null)
+    setTypeForm({ name: '', max_capacity: 8, description: '' })
+    setShowTypeForm(true)
+  }
+
+  function openEditType(ct: any) {
+    setEditingType(ct)
+    setTypeForm({
+      name: ct.name,
+      max_capacity: ct.max_capacity ?? 8,
+      description: ct.description ?? '',
+    })
+    setShowTypeForm(true)
+  }
+
+  async function saveType(e: React.FormEvent) {
+    e.preventDefault()
+    if (!typeForm.name.trim()) {
+      showToast('Type name is required.')
+      return
+    }
+
+    if (editingType) {
+      const { error } = await supabase.from('cottage_types_config').update(typeForm).eq('id', editingType.id)
+      if (error) { showToast('Error: ' + error.message); return }
+      showToast(`${typeForm.name} updated.`)
+    } else {
+      const { error } = await supabase.from('cottage_types_config').insert(typeForm)
+      if (error) { showToast('Error: ' + error.message); return }
+      showToast(`${typeForm.name} added.`)
+    }
+    setShowTypeForm(false)
+    load()
+  }
+
+  async function deactivateType(ct: any) {
+    if (!confirm(`Deactivate "${ct.name}"? It will no longer be selectable for new cottages, but existing cottages keep it.`)) return
+    const { error } = await supabase.from('cottage_types_config').update({ is_active: false }).eq('id', ct.id)
+    if (error) { showToast('Error: ' + error.message); return }
+    showToast(`${ct.name} deactivated.`)
+    load()
+  }
+
   const counts = cottages.reduce((acc: Record<string, number>, c) => {
     acc[c.status] = (acc[c.status] ?? 0) + 1
     return acc
@@ -109,7 +195,7 @@ export default function CottagesPage() {
   const q = search.trim().toLowerCase()
   const filteredCottages = cottages.filter(c => {
     if (!q) return true
-    return [c.cottage_code, c.name, typeLabel[c.type] ?? c.type, c.status]
+    return [c.cottage_code, c.name, typeLabelFor(c), c.status]
       .some(v => v && String(v).toLowerCase().includes(q))
   })
 
@@ -120,6 +206,33 @@ export default function CottagesPage() {
           {toast}
         </div>
       )}
+
+      {/* Cottage Types management */}
+      <div className="mb-5 bg-white border border-gray-100 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-sm font-medium text-gray-700">Cottage Types</div>
+          {canManage && (
+            <button onClick={openNewType} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs rounded-lg whitespace-nowrap">
+              + Add Cottage Type
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {cottageTypes.length === 0 ? (
+            <div className="text-xs text-gray-400">No cottage types yet.</div>
+          ) : cottageTypes.map(ct => (
+            <div key={ct.id} className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5 text-xs">
+              <span className="font-medium text-gray-700">{ct.name}</span>
+              {canManage && (
+                <button onClick={() => openEditType(ct)} className="text-gray-400 hover:text-gray-600 ml-1">Edit</button>
+              )}
+              {canManage && (
+                <button onClick={() => deactivateType(ct)} className="text-red-400 hover:text-red-600">✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm font-medium text-gray-700">{cottages.length} Cottages</div>
@@ -173,7 +286,7 @@ export default function CottagesPage() {
                   <button onClick={() => openEdit(c)} className="text-gray-400 hover:text-gray-600 text-xs">Edit</button>
                 )}
               </div>
-              <div className="text-xs text-gray-500 mb-1">{typeLabel[c.type] ?? c.type} — {c.capacity} pax</div>
+              <div className="text-xs text-gray-500 mb-1">{typeLabelFor(c)} — {c.capacity} pax</div>
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[c.status] ?? 'bg-gray-100 text-gray-600'}`}>
                 {c.status}
               </span>
@@ -225,16 +338,16 @@ export default function CottagesPage() {
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Type</label>
-              <select value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))}
+              <select value={form.cottage_type_id} onChange={e => onTypeChange(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white">
-                <option value="open">Open Cottage</option>
-                <option value="covered">Covered Cottage</option>
-                <option value="family">Family Cottage</option>
-                <option value="vip">VIP Cottage</option>
-                <option value="function_hall">Function Hall</option>
-                <option value="beach_table">Beach Table</option>
-                <option value="tent_area">Tent Area</option>
+                <option value="">-- Select --</option>
+                {cottageTypes.map(ct => (
+                  <option key={ct.id} value={ct.id}>{ct.name}</option>
+                ))}
               </select>
+              {cottageTypes.length === 0 && (
+                <p className="text-xs text-red-500 mt-1">No cottage types yet — add one above first.</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -253,6 +366,41 @@ export default function CottagesPage() {
                 {editing ? 'Save Changes' : 'Add Cottage'}
               </button>
               <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showTypeForm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowTypeForm(false)}>
+          <form onSubmit={saveType} className="bg-white rounded-xl p-5 w-full max-w-sm space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="text-sm font-medium text-gray-700 mb-1">{editingType ? 'Edit Cottage Type' : 'Add Cottage Type'}</div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Name</label>
+              <input value={typeForm.name} onChange={e => setTypeForm(p => ({ ...p, name: e.target.value }))}
+                placeholder="e.g. Garden Cottage"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Max Capacity</label>
+              <input type="number" value={typeForm.max_capacity} onChange={e => setTypeForm(p => ({ ...p, max_capacity: parseInt(e.target.value) || 1 }))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Description</label>
+              <input value={typeForm.description} onChange={e => setTypeForm(p => ({ ...p, description: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+            </div>
+            <p className="text-[11px] text-gray-400">
+              Rates are set per cottage, not per type — this is just a label for organizing cottages.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <button type="submit" className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm rounded-lg">
+                {editingType ? 'Save Changes' : 'Add Type'}
+              </button>
+              <button type="button" onClick={() => setShowTypeForm(false)} className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">
                 Cancel
               </button>
             </div>

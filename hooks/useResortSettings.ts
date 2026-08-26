@@ -12,6 +12,7 @@ export interface ResortSettings {
   gcash_number: string
   bank_name: string
   bank_account_number: string
+  facebook_url: string
 }
 
 // Same shape/values as lib/resort-settings.ts DEFAULT_RESORT_SETTINGS — kept
@@ -27,6 +28,7 @@ const FALLBACK: ResortSettings = {
   gcash_number: '',
   bank_name: '',
   bank_account_number: '',
+  facebook_url: '',
 }
 
 export function useResortSettings() {
@@ -51,6 +53,7 @@ export function useResortSettings() {
           gcash_number: d.gcash_number ?? FALLBACK.gcash_number,
           bank_name: d.bank_name ?? FALLBACK.bank_name,
           bank_account_number: d.bank_account_number ?? FALLBACK.bank_account_number,
+          facebook_url: d.facebook_url ?? FALLBACK.facebook_url,
         })
       })
       .catch(() => {

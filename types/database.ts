@@ -466,6 +466,7 @@ export type Database = {
           amenities: string[] | null
           capacity: number
           cottage_code: string
+          cottage_type_id: string | null
           created_at: string | null
           day_rate: number
           description: string | null
@@ -475,13 +476,14 @@ export type Database = {
           notes: string | null
           overnight_rate: number | null
           status: Database["public"]["Enums"]["room_status"] | null
-          type: Database["public"]["Enums"]["cottage_type"]
+          type: Database["public"]["Enums"]["cottage_type"] | null
           updated_at: string | null
         }
         Insert: {
           amenities?: string[] | null
           capacity?: number
           cottage_code: string
+          cottage_type_id?: string | null
           created_at?: string | null
           day_rate: number
           description?: string | null
@@ -491,13 +493,14 @@ export type Database = {
           notes?: string | null
           overnight_rate?: number | null
           status?: Database["public"]["Enums"]["room_status"] | null
-          type: Database["public"]["Enums"]["cottage_type"]
+          type?: Database["public"]["Enums"]["cottage_type"] | null
           updated_at?: string | null
         }
         Update: {
           amenities?: string[] | null
           capacity?: number
           cottage_code?: string
+          cottage_type_id?: string | null
           created_at?: string | null
           day_rate?: number
           description?: string | null
@@ -507,8 +510,46 @@ export type Database = {
           notes?: string | null
           overnight_rate?: number | null
           status?: Database["public"]["Enums"]["room_status"] | null
-          type?: Database["public"]["Enums"]["cottage_type"]
+          type?: Database["public"]["Enums"]["cottage_type"] | null
           updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cottages_cottage_type_id_fkey"
+            columns: ["cottage_type_id"]
+            isOneToOne: false
+            referencedRelation: "cottage_types_config"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      cottage_types_config: {
+        Row: {
+          id: string
+          name: string
+          max_capacity: number | null
+          description: string | null
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          max_capacity?: number | null
+          description?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          max_capacity?: number | null
+          description?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -1609,6 +1650,7 @@ export type Database = {
           gcash_number: string | null
           bank_name: string | null
           bank_account_number: string | null
+          facebook_url: string | null
           updated_at: string | null
           updated_by: string | null
         }
@@ -1623,6 +1665,7 @@ export type Database = {
           gcash_number?: string | null
           bank_name?: string | null
           bank_account_number?: string | null
+          facebook_url?: string | null
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -1637,6 +1680,7 @@ export type Database = {
           gcash_number?: string | null
           bank_name?: string | null
           bank_account_number?: string | null
+          facebook_url?: string | null
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -1840,7 +1884,7 @@ export type Database = {
           is_active: boolean | null
           max_capacity: number
           name: string
-          type: Database["public"]["Enums"]["room_type"]
+          type: string
           weekend_rate: number | null
         }
         Insert: {
@@ -1855,7 +1899,7 @@ export type Database = {
           is_active?: boolean | null
           max_capacity?: number
           name: string
-          type: Database["public"]["Enums"]["room_type"]
+          type: string
           weekend_rate?: number | null
         }
         Update: {
@@ -1870,7 +1914,7 @@ export type Database = {
           is_active?: boolean | null
           max_capacity?: number
           name?: string
-          type?: Database["public"]["Enums"]["room_type"]
+          type?: string
           weekend_rate?: number | null
         }
         Relationships: []

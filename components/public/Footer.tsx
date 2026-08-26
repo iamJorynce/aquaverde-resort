@@ -15,7 +15,7 @@ export default async function Footer() {
             <span className="text-white text-lg" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>{settings.resort_name}</span>
           </div>
           <p className="text-[14.5px] leading-relaxed max-w-sm" style={{ fontFamily: 'Work Sans, sans-serif' }}>
-            A quiet stretch of coastline in Sarangani, South Cotabato — where the tide sets the schedule
+            A quiet stretch of coastline in {settings.address} — where the tide sets the schedule
             and the only agenda is the one you bring with you.
           </p>
         </div>
