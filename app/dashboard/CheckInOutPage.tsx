@@ -376,7 +376,7 @@ export default function CheckInOutPage() {
 
   // ---- Add Extra (cottage or extra room) to an already-checked-in group ----
   async function openAddExtraModal(group: BookingGroup) {
-    setAddExtraType('cottage')
+    setAddExtraType('room')
     setSelectedExtraId('')
     setAddExtraModal(group)
 
@@ -1705,11 +1705,13 @@ export default function CheckInOutPage() {
             </div>
 
             <div className="flex gap-2 mb-4">
+              {/* Cottage option temporarily disabled — front desk should only add extra rooms here.
               <button
                 onClick={() => { setAddExtraType('cottage'); setSelectedExtraId('') }}
                 className={`flex-1 py-2 text-xs rounded-lg font-medium ${addExtraType === 'cottage' ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-500'}`}>
                 🏖️ Cottage
               </button>
+              */}
               <button
                 onClick={() => { setAddExtraType('room'); setSelectedExtraId('') }}
                 className={`flex-1 py-2 text-xs rounded-lg font-medium ${addExtraType === 'room' ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-500'}`}>

@@ -201,7 +201,7 @@ export default function CalendarPage() {
               const overflow = dayBookings.length - visible.length
               return (
                 <button key={day} onClick={() => setSelectedDay(day)}
-                  className={`min-h-[92px] border-b border-r border-gray-50 p-1.5 text-left align-top hover:bg-blue-50/40 transition-colors ${inMonth ? 'bg-white' : 'bg-gray-50/60'}`}>
+                  className={`min-h-[92px] border-b border-r border-gray-200 p-1.5 text-left align-top hover:bg-blue-50/40 transition-colors ${inMonth ? 'bg-white' : 'bg-gray-50/60'}`}>
                   <div className={`text-xs mb-1 inline-flex items-center justify-center w-5 h-5 rounded-full ${isToday ? 'bg-blue-700 text-white font-semibold' : inMonth ? 'text-gray-600' : 'text-gray-300'}`}>
                     {Number(day.slice(8, 10))}
                   </div>
@@ -224,7 +224,7 @@ export default function CalendarPage() {
           <div className="grid border-b border-gray-100" style={{ gridTemplateColumns: '120px repeat(7, 1fr)' }}>
             <div className="px-3 py-2 text-[11px] font-medium text-gray-400">Room / Cottage</div>
             {weekDays.map(day => (
-              <div key={day} className={`px-2 py-2 text-center border-l border-gray-50 ${day === today ? 'bg-blue-50' : ''}`}>
+              <div key={day} className={`px-2 py-2 text-center border-l border-gray-200 ${day === today ? 'bg-blue-50' : ''}`}>
                 <div className="text-[11px] text-gray-400">{WEEKDAY_NAMES[weekdayOf(day)]}</div>
                 <div className={`text-xs font-medium ${day === today ? 'text-blue-700' : 'text-gray-700'}`}>{Number(day.slice(8, 10))}</div>
               </div>
@@ -239,11 +239,11 @@ export default function CalendarPage() {
             ].map(row => {
               const rowBookings = visibleBookings.filter(row.match)
               return (
-                <div key={row.key} className="grid border-b border-gray-50" style={{ gridTemplateColumns: '120px repeat(7, 1fr)', minHeight: 40 }}>
+                <div key={row.key} className="grid border-b border-gray-200" style={{ gridTemplateColumns: '120px repeat(7, 1fr)', minHeight: 40 }}>
                   <div className="px-3 py-2 text-xs text-gray-600 flex items-center truncate">{row.label}</div>
                   <div className="col-span-7 grid relative" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
                     {weekDays.map(day => (
-                      <div key={day} className={`border-l border-gray-50 ${day === today ? 'bg-blue-50/40' : ''}`} />
+                      <div key={day} className={`border-l border-gray-200 ${day === today ? 'bg-blue-50/40' : ''}`} />
                     ))}
                     {rowBookings.map(b => {
                       const span = weekBarSpan(b)

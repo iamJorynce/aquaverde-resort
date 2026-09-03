@@ -56,7 +56,8 @@ export const emailTemplates = {
 <body>
   <div class="container">
     <div class="header">
-      <h1>🌊 ${resort.name}</h1>
+      ${Deno.env.get('APP_URL') ? `<img src="${Deno.env.get('APP_URL')}/images/citilogo.jpg" alt="${resort.name}" width="64" height="64" style="border-radius:8px;margin-bottom:8px;display:inline-block;">` : ''}
+      <h1>${resort.name}</h1>
       <p>Your booking is confirmed!</p>
     </div>
     <div class="body">
