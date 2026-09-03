@@ -141,6 +141,42 @@ function BookingPageContent() {
   // Reservation fee = 50% of the ENTIRE bill (all rooms, all nights combined)
   const reservationFee = Math.ceil(subtotal * 0.5)
 
+  // Group individual room records by room type so guests pick a
+  // quantity per type ("Deluxe Room × 2") instead of seeing every
+  // physical room listed out as its own repeating option.
+  function groupRoomsByType(list: RoomOption[]) {
+    const map = new Map<string, { room_type_id: string; name: string; base_rate: number; max_capacity: number; rooms: RoomOption[] }>()
+    for (const r of list) {
+      const key = r.room_type_id
+      if (!map.has(key)) {
+        map.set(key, {
+          room_type_id: key,
+          name: r.room_types_config?.name ?? 'Room',
+          base_rate: r.room_types_config?.base_rate ?? 0,
+          max_capacity: r.room_types_config?.max_capacity ?? 0,
+          rooms: [],
+        })
+      }
+      map.get(key)!.rooms.push(r)
+    }
+    return Array.from(map.values())
+  }
+  const availableGroups = groupRoomsByType(rooms)
+  const selectedGroups = groupRoomsByType(selectedRooms).map(g => ({
+    ...g,
+    qty: g.rooms.length,
+    amount: g.base_rate * nights * g.rooms.length,
+  }))
+
+  function setGroupQuantity(group: { room_type_id: string; rooms: RoomOption[] }, qty: number) {
+    const clamped = Math.max(0, Math.min(qty, group.rooms.length))
+    setForm(p => {
+      const otherIds = p.room_ids.filter(id => !group.rooms.some(r => r.id === id))
+      const theseIds = group.rooms.slice(0, clamped).map(r => r.id)
+      return { ...p, room_ids: [...otherIds, ...theseIds] }
+    })
+  }
+
   useEffect(() => {
     Promise.all([
       supabase.from('room_types_config').select('*').eq('is_active', true).order('base_rate'),
@@ -190,13 +226,6 @@ function BookingPageContent() {
     setRooms(availableForDates)
     setForm(p => ({ ...p, room_ids: p.room_ids.filter(id => availableForDates.some(r => r.id === id)) }))
     setCheckingAvail(false)
-  }
-
-  function toggleRoom(id: string) {
-    setForm(p => ({
-      ...p,
-      room_ids: p.room_ids.includes(id) ? p.room_ids.filter(r => r !== id) : [...p.room_ids, id],
-    }))
   }
 
   function goToStep2() {
@@ -394,32 +423,29 @@ function BookingPageContent() {
                       </div>
                     )}
                     <div className="space-y-2 max-h-72 overflow-y-auto">
-                      {rooms.map(r => {
-                        const cap = r.room_types_config?.max_capacity ?? 0
-                        const tooSmallAlone = cap < totalPax && form.room_ids.length === 0
-                        const checked = form.room_ids.includes(r.id)
-                        // Guests never need the literal room number — it's
-                        // operational info, not something they should see
-                        // or reference before check-in. Show a stable,
-                        // anonymous option number per room type instead.
-                        const sameTypeRooms = rooms.filter(x => x.room_type_id === r.room_type_id)
-                        const optionNumber = sameTypeRooms.findIndex(x => x.id === r.id) + 1
+                      {availableGroups.map(g => {
+                        const selectedQty = form.room_ids.filter(id => g.rooms.some(r => r.id === id)).length
+                        const tooSmallAlone = g.max_capacity < totalPax && form.room_ids.length === 0
                         return (
-                          <label key={r.id} className={`flex items-center gap-4 border-2 rounded-xl p-4 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-                            checked ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                          <div key={g.room_type_id} className={`flex items-center gap-4 border-2 rounded-xl p-4 transition-all duration-200 ${
+                            selectedQty > 0 ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
                           } ${tooSmallAlone ? 'opacity-50' : ''}`}>
-                            <input type="checkbox" checked={checked} onChange={() => toggleRoom(r.id)} className="sr-only" />
                             <div className="flex-1">
-                              <div className="font-medium text-gray-800">
-                                {r.room_types_config?.name}{sameTypeRooms.length > 1 ? ` — Option ${optionNumber}` : ''}
-                              </div>
-                              <div className="text-sm text-gray-500">Up to {cap} guests</div>
+                              <div className="font-medium text-gray-800">{g.name}</div>
+                              <div className="text-sm text-gray-500">Up to {g.max_capacity} guests per room · {g.rooms.length} available</div>
                             </div>
                             <div className="text-right">
-                              <div className="font-bold text-blue-700">₱{Number(r.room_types_config?.base_rate ?? 0).toLocaleString()}</div>
+                              <div className="font-bold text-blue-700">₱{Number(g.base_rate).toLocaleString()}</div>
                               <div className="text-xs text-gray-400">per night</div>
                             </div>
-                          </label>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <button type="button" onClick={() => setGroupQuantity(g, selectedQty - 1)} disabled={selectedQty === 0}
+                                className="w-8 h-8 rounded-full border border-gray-300 text-gray-600 disabled:opacity-30 flex items-center justify-center hover:bg-gray-50">−</button>
+                              <span className="w-5 text-center font-medium text-gray-800">{selectedQty}</span>
+                              <button type="button" onClick={() => setGroupQuantity(g, selectedQty + 1)} disabled={selectedQty >= g.rooms.length}
+                                className="w-8 h-8 rounded-full border border-gray-300 text-gray-600 disabled:opacity-30 flex items-center justify-center hover:bg-gray-50">+</button>
+                            </div>
+                          </div>
                         )
                       })}
                     </div>
@@ -438,10 +464,10 @@ function BookingPageContent() {
 
               {roomLines.length > 0 && (
                 <div className="bg-blue-50 rounded-xl p-4 text-sm">
-                  {roomLines.map(rl => (
-                    <div key={rl.id} className="flex justify-between text-gray-600 mb-1">
-                      <span>{rl.label} × {nights} night{nights > 1 ? 's' : ''}</span>
-                      <span>₱{rl.amount.toLocaleString()}</span>
+                  {selectedGroups.map(g => (
+                    <div key={g.room_type_id} className="flex justify-between text-gray-600 mb-1">
+                      <span>{g.name}{g.qty > 1 ? ` × ${g.qty} rooms` : ''} × {nights} night{nights > 1 ? 's' : ''}</span>
+                      <span>₱{g.amount.toLocaleString()}</span>
                     </div>
                   ))}
                   <div className="flex justify-between font-semibold text-blue-700 border-t border-blue-200 pt-1.5 mt-1.5">
@@ -515,8 +541,8 @@ function BookingPageContent() {
               <div className="border border-gray-100 rounded-xl overflow-hidden">
                 <div className="bg-gray-50 px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Booking Summary</div>
                 <div className="p-4 space-y-3 text-sm">
-                  {roomLines.map(rl => (
-                    <div key={rl.id} className="flex justify-between"><span className="text-gray-500">{rl.label}</span><span className="font-medium">₱{rl.amount.toLocaleString()}</span></div>
+                  {selectedGroups.map(g => (
+                    <div key={g.room_type_id} className="flex justify-between"><span className="text-gray-500">{g.name}{g.qty > 1 ? ` × ${g.qty}` : ''}</span><span className="font-medium">₱{g.amount.toLocaleString()}</span></div>
                   ))}
                   <div className="flex justify-between"><span className="text-gray-500">Check-in</span><span className="font-medium">{new Date(form.check_in_date).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">Check-out</span><span className="font-medium">{new Date(form.check_out_date).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
