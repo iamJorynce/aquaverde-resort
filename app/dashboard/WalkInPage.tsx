@@ -746,6 +746,7 @@ export default function WalkInPage() {
 
         {/* Right column: cottages + equipment + summary */}
         <div className="space-y-4">
+         {/* 
           <div className="bg-white border border-gray-100 rounded-xl p-4">
             <div className="text-sm font-medium text-gray-700 mb-2">Add Cottages (optional, select multiple)</div>
             {cottages.length === 0 ? (
@@ -764,9 +765,9 @@ export default function WalkInPage() {
                 ))}
               </div>
             )}
-          </div>
+          </div> */}
 
-          <div className="bg-white border border-gray-100 rounded-xl p-4">
+         {/*  <div className="bg-white border border-gray-100 rounded-xl p-4">
             <div className="text-sm font-medium text-gray-700 mb-2">Equipment Rental (optional, select multiple)</div>
             {equipment.length === 0 ? (
               <div className="text-xs text-gray-400">No available equipment right now.</div>
@@ -816,7 +817,7 @@ export default function WalkInPage() {
                 })}
               </div>
             )}
-          </div>
+          </div>*/}
 
           {/* Bill summary */}
           <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
@@ -875,6 +876,7 @@ export default function WalkInPage() {
             </button>
           </div>
         </div>
+        
       </form>
 
       {/* Existing Guest Confirmation Modal */}

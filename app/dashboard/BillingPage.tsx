@@ -179,13 +179,13 @@ setInvoices(data ?? [])
     ]
   : (posLines.length > 0 || addonLines.length > 0)
       ? [...posLines, ...addonLines]
-      : [{ label: 'Day Use Entry', amount: Number(inv.total) }]
+      : [{ label: 'Day/Night Pass Entry', amount: Number(inv.total) }]
 
   printReceipt({
     title: resortSettings.resort_name,
     subtitle: resortSettings.address,
     receiptNumber: inv.invoice_number,
-    receiptType: isAccommodation ? 'Official Receipt' : 'Day Use Receipt',
+    receiptType: isAccommodation ? 'Official Receipt' : 'Day/Night Pass Receipt',
     date: new Date(inv.created_at).toLocaleDateString('en-PH', { dateStyle: 'medium' }),
     guestName: inv.guests?.full_name ?? 'Guest',
     guestContact: inv.guests?.phone ?? undefined,

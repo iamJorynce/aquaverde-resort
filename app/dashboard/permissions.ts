@@ -21,6 +21,7 @@ export type Role =
 export const MODULE_ACCESS: Record<string, Role[]> = {
   dashboard:      ['super_admin', 'resort_owner', 'front_desk', 'cashier', 'staff', 'housekeeping', 'maintenance', 'restaurant'],
   bookings:       ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
+  calendar:       ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
   walkin:         ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
   checkinout:     ['super_admin', 'resort_owner', 'front_desk', 'cashier'],
   rooms:          ['super_admin', 'resort_owner', 'front_desk', 'cashier'],

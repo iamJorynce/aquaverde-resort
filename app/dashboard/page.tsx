@@ -5,6 +5,11 @@ import { createClient } from '@/lib/supabase/client'
 import { todayInManila } from '@/lib/bookingDates'
 import { useResortSettings } from '@/hooks/useResortSettings'
 import { useRouter } from 'next/navigation'
+import {
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+} from 'recharts'
+import CalendarPage from './CalendarPage'
 import WalkInPage from './WalkInPage'
 import CheckInOutPage from './CheckInOutPage'
 import POSPage from './POSPage'
@@ -28,17 +33,18 @@ import { canAccess, getAccessibleModules, ROLE_LABELS } from './permissions'
 const NAV = [
   { id: 'dashboard',    icon: '📊', label: 'Dashboard' },
   { id: 'bookings',     icon: '📅', label: 'Bookings' },
+  { id: 'calendar',     icon: '🗓️', label: 'Calendar' },
   { id: 'walkin',       icon: '🚶', label: 'Walk-in' },
   { id: 'checkinout',   icon: '🚪', label: 'Check-in/Out' },
   { id: 'rooms',        icon: '🏠', label: 'Rooms' },
-  { id: 'cottages',     icon: '⛺', label: 'Cottages' },
-  { id: 'dayuse',       icon: '☀️', label: 'Day Use' },
+  /*{ id: 'cottages',     icon: '⛺', label: 'Cottages' },*/
+ /* { id: 'dayuse',       icon: '☀️', label: 'Day/Night Pass' },*/
   { id: 'pos',          icon: '🧾', label: 'POS / Cashier' },
   { id: 'restaurant',   icon: '🍽️', label: 'Restaurant' },
   { id: 'housekeeping', icon: '✨', label: 'Housekeeping' },
   { id: 'maintenance',  icon: '🔧', label: 'Maintenance' },
   { id: 'inventory',    icon: '📦', label: 'Inventory' },
-  { id: 'equipment',    icon: '🛶', label: 'Equipment' },
+  /*{ id: 'equipment',    icon: '🛶', label: 'Equipment' },*/
   { id: 'guests',       icon: '👥', label: 'Guests' },
   { id: 'staff',        icon: '👤', label: 'Staff' },
   { id: 'billing',      icon: '📄', label: 'Billing' },
@@ -240,6 +246,68 @@ export default function DashboardPage() {
     }
   }
 
+  // ---- Resort Analytics (Dashboard) ----
+  // A quick at-a-glance view of how the resort is doing — separate from
+  // the deeper, filterable breakdowns in the Reports module.
+  const [analytics, setAnalytics] = useState<{
+    revenueTrend: { date: string; label: string; total: number }[]
+    revenueByCategory: { type: string; label: string; total: number }[]
+    bookingStatus: { status: string; label: string; count: number }[]
+    roomStatus: { status: string; label: string; count: number }[]
+  } | null>(null)
+
+  async function loadAnalytics() {
+    const since = new Date(Date.now() - 13 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const [{ data: txns }, { data: bookingRows }, { data: allRooms }] = await Promise.all([
+      supabase.from('transactions')
+        .select('amount, txn_type, created_at')
+        .gte('created_at', `${since}T00:00:00`)
+        .eq('voided', false),
+      supabase.from('bookings')
+        .select('status')
+        .gte('created_at', `${since}T00:00:00`),
+      supabase.from('rooms').select('status'),
+    ])
+
+    // Revenue trend — last 14 days, zero-filled so the line doesn't skip
+    // days with no sales.
+    const byDate: Record<string, number> = {}
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(Date.now() - (13 - i) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      byDate[d] = 0
+    }
+    ;(txns ?? []).forEach(t => {
+      const d = t.created_at.slice(0, 10)
+      if (d in byDate) byDate[d] += Number(t.amount)
+    })
+    const revenueTrend = Object.entries(byDate).map(([date, total]) => ({
+      date, total, label: new Date(date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }),
+    }))
+
+    // Revenue by category, same window
+    const byCat: Record<string, number> = {}
+    ;(txns ?? []).forEach(t => { byCat[t.txn_type] = (byCat[t.txn_type] ?? 0) + Number(t.amount) })
+    const revenueByCategory = Object.entries(byCat)
+      .sort((a, b) => b[1] - a[1])
+      .map(([type, total]) => ({ type, total, label: type.replace('_', ' ') }))
+
+    // Booking status mix, same window
+    const byStatus: Record<string, number> = {}
+    ;(bookingRows ?? []).forEach(b => { byStatus[b.status] = (byStatus[b.status] ?? 0) + 1 })
+    const bookingStatus = Object.entries(byStatus).map(([status, count]) => ({
+      status, count, label: status.replace('_', ' '),
+    }))
+
+    // Room status right now
+    const byRoomStatus: Record<string, number> = {}
+    ;(allRooms ?? []).forEach(r => { byRoomStatus[r.status] = (byRoomStatus[r.status] ?? 0) + 1 })
+    const roomStatus = Object.entries(byRoomStatus).map(([status, count]) => ({
+      status, count, label: status.replace('_', ' '),
+    }))
+
+    setAnalytics({ revenueTrend, revenueByCategory, bookingStatus, roomStatus })
+  }
+
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
@@ -290,6 +358,7 @@ export default function DashboardPage() {
       await loadPendingCheckInOutCounts()
       await loadPendingHousekeepingCount()
       await loadLowStockCount()
+      await loadAnalytics()
     }
     load()
 
@@ -371,6 +440,19 @@ export default function DashboardPage() {
     no_show:     'bg-orange-100 text-orange-700',
   }
 
+  // Hex equivalents of the badge colors above, for the analytics pie
+  // charts — SVG fills can't read Tailwind classes, so this keeps the
+  // charts visually consistent with the status badges used everywhere else.
+  const roomStatusHex: Record<string, string> = {
+    available: '#16a34a', occupied: '#dc2626', reserved: '#2563eb',
+    cleaning: '#ca8a04', maintenance: '#6b7280',
+  }
+  const bookingStatusHex: Record<string, string> = {
+    pending: '#ca8a04', confirmed: '#2563eb', checked_in: '#16a34a',
+    checked_out: '#6b7280', cancelled: '#dc2626', no_show: '#ea580c',
+  }
+  const CHART_COLORS = ['#1d4ed8', '#059669', '#d97706', '#7c3aed', '#0d9488', '#dc2626']
+
   async function openShift() {
     if (!profile) return
     setOpeningShift(true)
@@ -391,11 +473,13 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+    <div className="flex h-screen bg-gray-50 overflow-hidden print:h-auto print:overflow-visible print:bg-white">
 
-      {/* ✨ NEW: Toast notification for pending transactions */}
+      {/* Toast notification for pending transactions — fixed-position, so
+          without print:hidden some browsers repeat it on every printed
+          page, overlapping the report content. */}
       {hasUnprocessedTransactions && (
-        <div className="fixed bottom-4 right-4 z-40 bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-lg max-w-sm">
+        <div className="fixed bottom-4 right-4 z-40 bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-lg max-w-sm print:hidden">
           <div className="flex items-start gap-3">
             <div className="text-lg">⚠️</div>
             <div>
@@ -409,7 +493,7 @@ export default function DashboardPage() {
                 {pendingCheckoutCount > 0 && <div>• Check-out: {pendingCheckoutCount} pending</div>}
                 {pendingHousekeepingCount > 0 && <div>• Housekeeping: {pendingHousekeepingCount} pending</div>}
                 {lowStockCount > 0 && <div>• Inventory: {lowStockCount} low stock</div>}
-                {transactionCounts.dayuse > 0 && <div>• Day Use: {transactionCounts.dayuse} pending</div>}
+                {transactionCounts.dayuse > 0 && <div>• Day/Night Pass: {transactionCounts.dayuse} pending</div>}
                 {pendingBookingsCount > 0 && <div>• Bookings: {pendingBookingsCount} pending</div>}
               </div>
             </div>
@@ -419,7 +503,7 @@ export default function DashboardPage() {
 
       {/* Shift opening prompt modal */}
       {showShiftPrompt && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
             <div className="text-base font-semibold text-gray-800 mb-1">Start Your Shift</div>
             <div className="text-xs text-gray-400 mb-4">
@@ -476,7 +560,7 @@ export default function DashboardPage() {
 
       {/* Sidebar overlay for mobile */}
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-black/40 z-20 md:hidden print:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
       {/* SIDEBAR */}
@@ -488,7 +572,11 @@ export default function DashboardPage() {
         {/* Logo */}
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
-            <span className="text-xl">🌊</span>
+            <img
+  src="/images/citilogo.jpg"
+  alt="CITI Logo"
+  className="w-7 h-7 object-contain"
+/>
             <div>
               <div className="text-sm font-semibold text-gray-800">{resortSettings.resort_name}</div>
               <div className="text-xs text-gray-400">Management System</div>
@@ -538,7 +626,7 @@ export default function DashboardPage() {
       </aside>
 
       {/* MAIN */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden print:overflow-visible">
 
         {/* Topbar */}
         <header className="bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3 flex-shrink-0 print:hidden">
@@ -552,7 +640,7 @@ export default function DashboardPage() {
         </header>
 
         {/* Content */}
-        <main className="flex-1 overflow-auto p-4 md:p-6">
+        <main className="flex-1 overflow-auto p-4 md:p-6 print:overflow-visible print:h-auto print:p-0">
           {loading ? (
             <div className="flex items-center justify-center h-48 text-gray-400 text-sm">Loading...</div>
           ) : !canAccess(profile?.role, page) ? (
@@ -622,6 +710,105 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
+                  {/* Resort Analytics */}
+                  {analytics && (
+                    <div className="space-y-4">
+                      <div className="text-sm font-medium text-gray-700">Resort Analytics</div>
+
+                      <div className="bg-white border border-gray-100 rounded-xl p-4">
+                        <div className="text-xs text-gray-500 mb-2">Revenue — last 14 days</div>
+                        {analytics.revenueTrend.every(d => d.total === 0) ? (
+                          <div className="text-center py-8 text-gray-400 text-sm">No transactions in the last 14 days.</div>
+                        ) : (
+                          <ResponsiveContainer width="100%" height={200}>
+                            <AreaChart data={analytics.revenueTrend} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="dashRevenueFill" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#1d4ed8" stopOpacity={0.25} />
+                                  <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0} />
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} interval="preserveStartEnd" />
+                              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `₱${Number(v).toLocaleString()}`} width={64} />
+                              <Tooltip formatter={(v: any) => `₱${Number(v).toLocaleString()}`} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }} />
+                              <Area type="monotone" dataKey="total" stroke="#1d4ed8" strokeWidth={2} fill="url(#dashRevenueFill)" name="Revenue" />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="bg-white border border-gray-100 rounded-xl p-4">
+                          <div className="text-xs text-gray-500 mb-2">Revenue by Category</div>
+                          {analytics.revenueByCategory.length === 0 ? (
+                            <div className="text-center py-4 text-gray-400 text-xs">No data.</div>
+                          ) : (
+                            <ResponsiveContainer width="100%" height={Math.max(120, analytics.revenueByCategory.length * 32)}>
+                              <BarChart data={analytics.revenueByCategory} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                                <XAxis type="number" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `₱${Number(v).toLocaleString()}`} />
+                                <YAxis type="category" dataKey="label" tick={{ fontSize: 10, fill: '#475569' }} axisLine={false} tickLine={false} width={70} className="capitalize" />
+                                <Tooltip formatter={(v: any) => `₱${Number(v).toLocaleString()}`} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }} />
+                                <Bar dataKey="total" radius={[0, 4, 4, 0]}>
+                                  {analytics.revenueByCategory.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          )}
+                        </div>
+
+                        <div className="bg-white border border-gray-100 rounded-xl p-4">
+                          <div className="text-xs text-gray-500 mb-2">Booking Status Mix (14 days)</div>
+                          {analytics.bookingStatus.length === 0 ? (
+                            <div className="text-center py-4 text-gray-400 text-xs">No bookings.</div>
+                          ) : (
+                            <ResponsiveContainer width="100%" height={140}>
+                              <PieChart>
+                                <Pie data={analytics.bookingStatus} dataKey="count" nameKey="label" innerRadius={35} outerRadius={60} paddingAngle={2}>
+                                  {analytics.bookingStatus.map((s, i) => <Cell key={i} fill={bookingStatusHex[s.status] ?? CHART_COLORS[i % CHART_COLORS.length]} />)}
+                                </Pie>
+                                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }} />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          )}
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 justify-center">
+                            {analytics.bookingStatus.map((s, i) => (
+                              <span key={s.status} className="flex items-center gap-1 text-[10px] text-gray-500 capitalize">
+                                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: bookingStatusHex[s.status] ?? CHART_COLORS[i % CHART_COLORS.length] }} />
+                                {s.label} ({s.count})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="bg-white border border-gray-100 rounded-xl p-4">
+                          <div className="text-xs text-gray-500 mb-2">Room Status Right Now</div>
+                          {analytics.roomStatus.length === 0 ? (
+                            <div className="text-center py-4 text-gray-400 text-xs">No rooms configured.</div>
+                          ) : (
+                            <ResponsiveContainer width="100%" height={140}>
+                              <PieChart>
+                                <Pie data={analytics.roomStatus} dataKey="count" nameKey="label" innerRadius={35} outerRadius={60} paddingAngle={2}>
+                                  {analytics.roomStatus.map((s, i) => <Cell key={i} fill={roomStatusHex[s.status] ?? CHART_COLORS[i % CHART_COLORS.length]} />)}
+                                </Pie>
+                                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }} />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          )}
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 justify-center">
+                            {analytics.roomStatus.map((s, i) => (
+                              <span key={s.status} className="flex items-center gap-1 text-[10px] text-gray-500 capitalize">
+                                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: roomStatusHex[s.status] ?? CHART_COLORS[i % CHART_COLORS.length] }} />
+                                {s.label} ({s.count})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Recent Bookings */}
                   <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
                     <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -669,6 +856,9 @@ export default function DashboardPage() {
               {page === 'bookings' && (
                 <BookingsPanel />
               )}
+
+              {/* CALENDAR */}
+              {page === 'calendar' && <CalendarPage />}
 
               {/* WALK-IN */}
               {page === 'walkin' && <WalkInPage />}

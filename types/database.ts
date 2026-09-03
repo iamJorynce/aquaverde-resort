@@ -199,6 +199,7 @@ export type Database = {
       booking_addons: {
         Row: {
           booking_id: string
+          category: string | null
           created_at: string | null
           id: string
           name: string
@@ -208,6 +209,7 @@ export type Database = {
         }
         Insert: {
           booking_id: string
+          category?: string | null
           created_at?: string | null
           id?: string
           name: string
@@ -217,6 +219,7 @@ export type Database = {
         }
         Update: {
           booking_id?: string
+          category?: string | null
           created_at?: string | null
           id?: string
           name?: string
@@ -570,6 +573,7 @@ export type Database = {
           num_infants: number | null
           num_pwd: number | null
           num_seniors: number | null
+          period: string
           payment_method: Database["public"]["Enums"]["payment_method"] | null
           total_amount: number | null
           with_parking: boolean | null
@@ -591,6 +595,7 @@ export type Database = {
           num_infants?: number | null
           num_pwd?: number | null
           num_seniors?: number | null
+          period?: string
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           total_amount?: number | null
           with_parking?: boolean | null
@@ -612,6 +617,7 @@ export type Database = {
           num_infants?: number | null
           num_pwd?: number | null
           num_seniors?: number | null
+          period?: string
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           total_amount?: number | null
           with_parking?: boolean | null
@@ -642,6 +648,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           name: string
+          period: string
           rate: number
           updated_at: string | null
         }
@@ -652,6 +659,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           name: string
+          period?: string
           rate: number
           updated_at?: string | null
         }
@@ -662,6 +670,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           name?: string
+          period?: string
           rate?: number
           updated_at?: string | null
         }

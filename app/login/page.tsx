@@ -57,10 +57,10 @@ export default function LoginPage() {
        
 <div className="text-center mb-8">
   <div
-    className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-full mb-4 bg-white overflow-hidden shadow-sm"
+    className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-xl mb-4 bg-white overflow-hidden shadow-sm"
   >
     <img
-      src="/images/logo.png"
+      src="/images/citilogo.jpg"
       alt={resortSettings.resort_name}
       className="w-full h-full object-contain p-2"
     />

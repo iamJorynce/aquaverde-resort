@@ -308,8 +308,8 @@ function BookingPageContent() {
     <>
       <section className="bg-gradient-to-br from-blue-900 to-teal-700 text-white py-16">
         <div className="max-w-3xl mx-auto px-4 text-center">
-          <h1 className="text-4xl font-bold mb-3">Book Your Stay</h1>
-          <p className="text-blue-100">Reserve now, pay the 50% reservation fee on arrival. Easy and hassle-free.</p>
+          <h1 className="pub-hero-in text-4xl font-bold mb-3">Book Your Overnight Stay</h1>
+          <p className="pub-hero-in text-blue-100" style={{ animationDelay: '120ms' }}>Reserve now, pay the 50% reservation fee on arrival. Easy and hassle-free.</p>
         </div>
       </section>
 
@@ -337,6 +337,8 @@ function BookingPageContent() {
           {error && (
             <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-600">{error}</div>
           )}
+
+          <div key={step} className="pub-step-in">
 
           {/* Step 1: Guests, Dates & Rooms */}
           {step === 1 && (
@@ -403,7 +405,7 @@ function BookingPageContent() {
                         const sameTypeRooms = rooms.filter(x => x.room_type_id === r.room_type_id)
                         const optionNumber = sameTypeRooms.findIndex(x => x.id === r.id) + 1
                         return (
-                          <label key={r.id} className={`flex items-center gap-4 border-2 rounded-xl p-4 cursor-pointer transition-colors ${
+                          <label key={r.id} className={`flex items-center gap-4 border-2 rounded-xl p-4 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
                             checked ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
                           } ${tooSmallAlone ? 'opacity-50' : ''}`}>
                             <input type="checkbox" checked={checked} onChange={() => toggleRoom(r.id)} className="sr-only" />
@@ -451,7 +453,7 @@ function BookingPageContent() {
               )}
 
               <button onClick={goToStep2} disabled={form.room_ids.length === 0 || selectedRoomsCapacity < totalPax}
-                className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white py-3.5 rounded-xl font-semibold transition-colors">
+                className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white py-3.5 rounded-xl font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98] disabled:hover:translate-y-0 disabled:hover:shadow-none">
                 Continue →
               </button>
             </div>
@@ -543,7 +545,7 @@ function BookingPageContent() {
               </div>
 
               <button onClick={() => setStep(4)}
-                className="w-full bg-blue-700 hover:bg-blue-800 text-white py-4 rounded-xl font-semibold text-lg transition-colors">
+                className="w-full bg-blue-700 hover:bg-blue-800 text-white py-4 rounded-xl font-semibold text-lg transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98]">
                 Continue to Payment →
               </button>
             </div>
@@ -627,7 +629,7 @@ function BookingPageContent() {
               </div>
 
               <button onClick={submitBooking} disabled={loading || uploading || !proofFile || !form.payment_reference}
-                className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white py-4 rounded-xl font-semibold text-lg transition-colors">
+                className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white py-4 rounded-xl font-semibold text-lg transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98] disabled:hover:translate-y-0 disabled:hover:shadow-none">
                 {uploading ? 'Uploading proof...' : loading ? 'Submitting...' : 'Submit Booking Request'}
               </button>
               <p className="text-xs text-gray-400 text-center">
@@ -635,6 +637,8 @@ function BookingPageContent() {
               </p>
             </div>
           )}
+
+          </div>
         </div>
       </section>
     </>

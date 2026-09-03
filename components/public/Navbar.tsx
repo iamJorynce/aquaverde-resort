@@ -9,7 +9,7 @@ const NAV_LINKS = [
   { href: '/', label: 'Home' },
   { href: '/about', label: 'About' },
   { href: '/rooms', label: 'Rooms' },
-  { href: '/day-use', label: 'Day Use' },
+ /* { href: '/day-use', label: 'Day/Night Pass' },*/
   { href: '/contact', label: 'Contact' },
 ]
 
@@ -47,11 +47,11 @@ export default function Navbar() {
       >
         <div className="max-w-7xl mx-auto px-5 md:px-8">
           <div className="flex items-center justify-between h-[72px] md:h-20">
-            <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-9 h-9 md:w-10 md:h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
+            <Link href="/" className="flex items-center gap-2.5 group">
+             <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 transition-transform duration-300 group-hover:scale-110">
   <img
-    src="/images/logo.png"
-    alt="AquaVerde Resort"
+    src="/images/citilogo.jpg"
+    alt="Citi Hotel"
     className="w-full h-full object-cover"
   />
 </div>
@@ -61,15 +61,23 @@ export default function Navbar() {
             </Link>
 
             <nav className="hidden md:flex items-center gap-10">
-              {NAV_LINKS.map(link => (
-                <Link key={link.href} href={link.href}
-                  className="text-[14px] tracking-wide text-white/85 hover:text-white transition-colors"
-                  style={{ fontFamily: 'Work Sans, sans-serif' }}>
-                  {link.label}
-                </Link>
-              ))}
+              {NAV_LINKS.map(link => {
+                const active = pathname === link.href
+                return (
+                  <Link key={link.href} href={link.href}
+                    className="relative text-[14px] tracking-wide text-white/85 hover:text-white transition-colors py-1 group"
+                    style={{ fontFamily: 'Work Sans, sans-serif' }}>
+                    {link.label}
+                    <span
+                      className="absolute left-0 -bottom-0.5 h-px bg-white transition-all duration-300 ease-out"
+                      style={{ width: active ? '100%' : '0%' }}
+                    />
+                    <span className="absolute left-0 -bottom-0.5 h-px bg-white/60 w-0 transition-all duration-300 ease-out group-hover:w-full" />
+                  </Link>
+                )
+              })}
               <Link href="/booking"
-                className="px-5 py-2.5 rounded-full text-[13.5px] font-medium tracking-wide transition-all hover:brightness-110"
+                className="px-5 py-2.5 rounded-full text-[13.5px] font-medium tracking-wide transition-all duration-300 hover:brightness-110 hover:-translate-y-0.5 hover:shadow-lg active:scale-95"
                 style={{ background: '#C97B4A', color: '#fff', fontFamily: 'Work Sans, sans-serif' }}>
                 Book Your Stay
               </Link>
@@ -77,7 +85,7 @@ export default function Navbar() {
 
             <button
               onClick={() => setMenuOpen(v => !v)}
-              className="md:hidden relative w-9 h-9 flex flex-col items-center justify-center gap-[5px]"
+              className="md:hidden relative w-9 h-9 flex flex-col items-center justify-center gap-[5px] transition-transform duration-200 active:scale-90"
               aria-label="Toggle menu"
               aria-expanded={menuOpen}
             >
@@ -110,7 +118,7 @@ export default function Navbar() {
             </Link>
           ))}
           <Link href="/booking"
-            className="mt-4 px-8 py-3.5 rounded-full text-base font-medium tracking-wide"
+            className="mt-4 px-8 py-3.5 rounded-full text-base font-medium tracking-wide transition-transform duration-200 active:scale-95"
             style={{
               background: '#C97B4A', color: '#fff', fontFamily: 'Work Sans, sans-serif',
               transitionDelay: menuOpen ? '240ms' : '0ms', opacity: menuOpen ? 1 : 0,

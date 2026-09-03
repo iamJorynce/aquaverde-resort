@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { getResortSettings } from '@/lib/resort-settings'
 import TideLine from '@/components/public/TideLine'
+import Reveal from '@/components/public/Reveal'
 
 const IMG_POOL_AERIAL = 'https://images.unsplash.com/photo-1526865046467-312f4d616a42'
 const IMG_COTTAGES    = 'https://images.unsplash.com/photo-1756573345813-7caa2f412606'
@@ -24,6 +25,7 @@ interface DayUseRate {
   area: string
   rate: number
   description: string | null
+  period: string
 }
 
 interface CottageType {
@@ -40,7 +42,7 @@ export default async function DayUsePage() {
 
   const { data: rateRows } = await supabase
     .from('day_use_rates')
-    .select('id, name, guest_type, area, rate, description')
+    .select('id, name, guest_type, area, rate, description, period')
     .eq('is_active', true)
     .order('area')
 
@@ -55,6 +57,10 @@ export default async function DayUsePage() {
   const cottages = (cottageTypes ?? []) as CottageType[]
 
   const areas = Array.from(new Set(rates.map(r => r.area))).sort()
+  const dayRates = rates.filter(r => r.period !== 'night')
+  const nightRates = rates.filter(r => r.period === 'night')
+  const dayAreas = Array.from(new Set(dayRates.map(r => r.area))).sort()
+  const nightAreas = Array.from(new Set(nightRates.map(r => r.area))).sort()
 
   return (
     <>
@@ -67,11 +73,11 @@ export default async function DayUsePage() {
         />
         <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(15,38,38,0.25) 0%, rgba(15,38,38,0.75) 100%)' }} />
         <div className="relative max-w-7xl mx-auto px-5 md:px-8 pb-14 md:pb-16 w-full">
-          <div className="text-white/70 text-[12.5px] tracking-[0.2em] uppercase mb-4" style={{ fontFamily: 'Work Sans, sans-serif' }}>
+          <div className="pub-hero-in text-white/70 text-[12.5px] tracking-[0.2em] uppercase mb-4" style={{ fontFamily: 'Work Sans, sans-serif' }}>
             No Overnight Stay Needed
           </div>
-          <h1 className="text-white text-[38px] md:text-[54px] leading-tight" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>
-            Day Use &amp; Swimming
+          <h1 className="pub-hero-in text-white text-[38px] md:text-[54px] leading-tight" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, animationDelay: '120ms' }}>
+            Day/Night Pass
           </h1>
         </div>
       </section>
@@ -79,11 +85,13 @@ export default async function DayUsePage() {
       {/* ===== INTRO ===== */}
       <section className="pt-16 pb-4" style={{ background: '#FAF6EF' }}>
         <div className="max-w-3xl mx-auto px-5 md:px-8 text-center">
+          <Reveal variant="scale">
           <p className="text-[18px] md:text-[22px] leading-relaxed" style={{ fontFamily: 'Fraunces, serif', fontWeight: 400, color: '#1A2E2B' }}>
-            Spend the day by the water — swim, rent a cottage, and head home before dark.
+            Spend the day or evening by the water — swim, rent a cottage, and head home after.
             No room booking required.
           </p>
           <TideLine />
+          </Reveal>
         </div>
       </section>
 
@@ -95,39 +103,93 @@ export default async function DayUsePage() {
               Day use rates aren't posted online yet — please contact us for current pricing.
             </div>
           ) : (
-            <div className="space-y-6">
-              {areas.map(area => {
-                const areaRates = rates
-                  .filter(r => r.area === area)
-                  .sort((a, b) => GUEST_TYPE_ORDER.indexOf(a.guest_type) - GUEST_TYPE_ORDER.indexOf(b.guest_type))
-                return (
-                  <div key={area} className="rounded-2xl overflow-hidden" style={{ background: '#fff' }}>
-                    <div className="px-6 md:px-8 py-5 border-b" style={{ borderColor: '#EAE3D4' }}>
-                      <h2 className="text-[19px]" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, color: '#1A2E2B' }}>
-                        {area}
-                      </h2>
+            <>
+              {dayAreas.length > 0 && (
+                <div className="space-y-6">
+                  <Reveal>
+                    <div className="text-[13px] tracking-[0.2em] uppercase text-center" style={{ fontFamily: 'Work Sans, sans-serif', color: '#C97B4A' }}>
+                      ☀️ Day Pass Rates
                     </div>
-                    <div className="p-6 md:p-8 grid grid-cols-2 sm:grid-cols-4 gap-5">
-                      {areaRates.map(r => (
-                        <div key={r.id}>
-                          <div className="text-[13px] mb-1" style={{ fontFamily: 'Work Sans, sans-serif', color: '#6B6355' }}>
-                            {GUEST_TYPE_LABEL[r.guest_type] ?? r.guest_type}
-                          </div>
-                          <div className="text-[20px]" style={{ fontFamily: 'Work Sans, sans-serif', color: '#1F6E63', fontWeight: 500 }}>
-                            ₱{Number(r.rate).toLocaleString()}
-                          </div>
-                          {r.description && (
-                            <div className="text-[12px] mt-0.5" style={{ fontFamily: 'Work Sans, sans-serif', color: '#9A9182' }}>
-                              {r.description}
-                            </div>
-                          )}
+                  </Reveal>
+                  {dayAreas.map((area, ai) => {
+                    const areaRates = dayRates
+                      .filter(r => r.area === area)
+                      .sort((a, b) => GUEST_TYPE_ORDER.indexOf(a.guest_type) - GUEST_TYPE_ORDER.indexOf(b.guest_type))
+                    return (
+                      <Reveal key={`day-${area}`} delay={ai * 80}>
+                      <div className="pub-hover-lift rounded-2xl overflow-hidden" style={{ background: '#fff' }}>
+                        <div className="px-6 md:px-8 py-5 border-b" style={{ borderColor: '#EAE3D4' }}>
+                          <h2 className="text-[19px]" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, color: '#1A2E2B' }}>
+                            {area}
+                          </h2>
                         </div>
-                      ))}
+                        <div className="p-6 md:p-8 grid grid-cols-2 sm:grid-cols-4 gap-5">
+                          {areaRates.map(r => (
+                            <div key={r.id}>
+                              <div className="text-[13px] mb-1" style={{ fontFamily: 'Work Sans, sans-serif', color: '#6B6355' }}>
+                                {GUEST_TYPE_LABEL[r.guest_type] ?? r.guest_type}
+                              </div>
+                              <div className="text-[20px]" style={{ fontFamily: 'Work Sans, sans-serif', color: '#1F6E63', fontWeight: 500 }}>
+                                ₱{Number(r.rate).toLocaleString()}
+                              </div>
+                              {r.description && (
+                                <div className="text-[12px] mt-0.5" style={{ fontFamily: 'Work Sans, sans-serif', color: '#9A9182' }}>
+                                  {r.description}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      </Reveal>
+                    )
+                  })}
+                </div>
+              )}
+
+              {nightAreas.length > 0 && (
+                <div className={`space-y-6 ${dayAreas.length > 0 ? 'mt-14' : ''}`}>
+                  <Reveal>
+                    <div className="text-[13px] tracking-[0.2em] uppercase text-center" style={{ fontFamily: 'Work Sans, sans-serif', color: '#1F6E63' }}>
+                      🌙 Night Pass Rates
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  </Reveal>
+                  {nightAreas.map((area, ai) => {
+                    const areaRates = nightRates
+                      .filter(r => r.area === area)
+                      .sort((a, b) => GUEST_TYPE_ORDER.indexOf(a.guest_type) - GUEST_TYPE_ORDER.indexOf(b.guest_type))
+                    return (
+                      <Reveal key={`night-${area}`} delay={ai * 80}>
+                      <div className="pub-hover-lift rounded-2xl overflow-hidden" style={{ background: '#0F2626' }}>
+                        <div className="px-6 md:px-8 py-5 border-b border-white/10">
+                          <h2 className="text-[19px] text-white" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>
+                            {area}
+                          </h2>
+                        </div>
+                        <div className="p-6 md:p-8 grid grid-cols-2 sm:grid-cols-4 gap-5">
+                          {areaRates.map(r => (
+                            <div key={r.id}>
+                              <div className="text-[13px] mb-1 text-white/60" style={{ fontFamily: 'Work Sans, sans-serif' }}>
+                                {GUEST_TYPE_LABEL[r.guest_type] ?? r.guest_type}
+                              </div>
+                              <div className="text-[20px]" style={{ fontFamily: 'Work Sans, sans-serif', color: '#C97B4A', fontWeight: 500 }}>
+                                ₱{Number(r.rate).toLocaleString()}
+                              </div>
+                              {r.description && (
+                                <div className="text-[12px] mt-0.5 text-white/50" style={{ fontFamily: 'Work Sans, sans-serif' }}>
+                                  {r.description}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      </Reveal>
+                    )
+                  })}
+                </div>
+              )}
+            </>
           )}
 
           <div className="mt-6 text-[13px] text-center" style={{ fontFamily: 'Work Sans, sans-serif', color: '#9A9182' }}>
@@ -149,8 +211,9 @@ export default async function DayUsePage() {
               </h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-              {cottages.map(c => (
-                <div key={c.id} className="rounded-2xl p-6" style={{ background: 'rgba(255,255,255,0.05)' }}>
+              {cottages.map((c, i) => (
+                <Reveal key={c.id} delay={i * 90}>
+                <div className="pub-hover-lift rounded-2xl p-6" style={{ background: 'rgba(255,255,255,0.05)' }}>
                   <h3 className="text-white text-[18px] mb-1.5" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>{c.name}</h3>
                   {c.max_capacity && (
                     <p className="text-white/60 text-[13.5px] mb-3" style={{ fontFamily: 'Work Sans, sans-serif' }}>
@@ -167,6 +230,7 @@ export default async function DayUsePage() {
                     <span className="text-[13px] font-normal text-white/50"> / day</span>
                   </div>
                 </div>
+                </Reveal>
               ))}
             </div>
           </div>
@@ -182,20 +246,22 @@ export default async function DayUsePage() {
         />
         <div className="absolute inset-0" style={{ background: 'rgba(15,38,38,0.78)' }} />
         <div className="relative max-w-2xl mx-auto px-5 md:px-8 text-center">
+          <Reveal variant="scale">
           <h2 className="text-white text-[26px] md:text-[34px] leading-tight mb-5" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>
             Walk-ins welcome
           </h2>
           <p className="text-white/80 text-[15px] mb-3" style={{ fontFamily: 'Work Sans, sans-serif' }}>
-            Day use entries are registered on arrival at the front desk — no online reservation
+            Day/Night Pass entries are registered on arrival at the front desk — no online reservation
             needed. Groups planning a large outing are welcome to call ahead so we can prepare a
             cottage for you.
           </p>
           <p className="text-white/60 text-[13.5px] mb-9" style={{ fontFamily: 'Work Sans, sans-serif' }}>
-            Open daily, morning until sunset.
+            Open daily — Day Pass mornings through sunset, Night Pass evenings after.
           </p>
-          <Link href="/contact" className="inline-block px-8 py-4 rounded-full text-[15px] font-medium tracking-wide transition-all hover:brightness-110" style={{ background: '#C97B4A', color: '#fff', fontFamily: 'Work Sans, sans-serif' }}>
+          <Link href="/contact" className="inline-block px-8 py-4 rounded-full text-[15px] font-medium tracking-wide transition-all duration-300 hover:brightness-110 hover:-translate-y-0.5 hover:shadow-xl active:scale-95" style={{ background: '#C97B4A', color: '#fff', fontFamily: 'Work Sans, sans-serif' }}>
             Contact Us
           </Link>
+          </Reveal>
         </div>
       </section>
     </>

@@ -29,6 +29,11 @@ export default function RemittancePage() {
   const [closedShift, setClosedShift]     = useState<any>(null)   // recently closed shift with draft
   const [shiftTxns, setShiftTxns]         = useState<any[]>([])
   const [dayUseStats, setDayUseStats]     = useState<{ area: string; adults: number; children: number; seniors: number; pwd: number; total: number; adultRate: number; childRate: number; seniorRate: number; pwdRate: number; subtotal: number }[]>([])
+  // Cottage add-ons charged mid-stay to an active room guest (CheckInOutPage
+  // "Add Extra"). No dedicated transaction row exists yet — they're folded
+  // into the guest's lump "room" payment at check-out — so pull them
+  // straight from booking_addons for this shift's breakdown, same as day use.
+  const [cottageAddonLines, setCottageAddonLines] = useState<any[]>([])
 
   // Open shift form
   const [openingFund, setOpeningFund] = useState(0)
@@ -115,22 +120,28 @@ export default function RemittancePage() {
   }
 
   async function loadShiftTxns(start: string, end: string) {
-    const [{ data: txns }, { data: entries }, { data: rates }] = await Promise.all([
+    const [{ data: txns }, { data: entries }, { data: rates }, { data: cottageAddons }] = await Promise.all([
       supabase.from('transactions')
         .select('id, amount, payment_method, txn_type, description, created_at, voided, void_reason')
         .gte('created_at', start).lte('created_at', end)
         .order('created_at'),
       // Only count day_use_entries where the linked transaction is NOT voided
       supabase.from('day_use_entries')
-        .select('area, area_breakdown, num_adults, num_children, num_seniors, num_pwd, transactions!day_use_id(voided)')
+        .select('area, area_breakdown, num_adults, num_children, num_seniors, num_pwd, period, transactions!day_use_id(voided)')
         .gte('created_at', start).lte('created_at', end),
-      supabase.from('day_use_rates').select('area, guest_type, rate').eq('is_active', true),
+      supabase.from('day_use_rates').select('area, guest_type, rate, period').eq('is_active', true),
+      supabase.from('booking_addons')
+        .select('name, quantity, unit_price, total_price, created_at')
+        .eq('category', 'cottage_addon')
+        .gte('created_at', start).lte('created_at', end)
+        .order('created_at'),
     ])
 
     setShiftTxns(txns ?? [])
+    setCottageAddonLines(cottageAddons ?? [])
 
     // Build per-area pax breakdown — skip entries where transaction is voided
-    const areaMap: Record<string, { adults: number; children: number; seniors: number; pwd: number }> = {}
+    const areaMap: Record<string, { area: string; period: string; adults: number; children: number; seniors: number; pwd: number }> = {}
     for (const e of entries ?? []) {
       // Skip if the linked transaction was voided
       const entryTxns = (e as any).transactions
@@ -139,6 +150,7 @@ export default function RemittancePage() {
         : entryTxns?.voided === true
       if (isVoided) continue
 
+      const period = (e as any).period ?? 'day'
       const breakdown = (e as any).area_breakdown as
         { area: string; adults: number; children: number; seniors: number; pwd: number }[] | null
       const entryAreas = (e.area ?? '').split(',').map((a: string) => a.trim()).filter(Boolean)
@@ -146,37 +158,42 @@ export default function RemittancePage() {
       if (breakdown?.length) {
         // Real per-area split — each area only gets its own counts.
         for (const b of breakdown) {
-          if (!areaMap[b.area]) areaMap[b.area] = { adults: 0, children: 0, seniors: 0, pwd: 0 }
-          areaMap[b.area].adults   += b.adults   ?? 0
-          areaMap[b.area].children += b.children ?? 0
-          areaMap[b.area].seniors  += b.seniors  ?? 0
-          areaMap[b.area].pwd      += b.pwd      ?? 0
+          const key = `${b.area}::${period}`
+          if (!areaMap[key]) areaMap[key] = { area: b.area, period, adults: 0, children: 0, seniors: 0, pwd: 0 }
+          areaMap[key].adults   += b.adults   ?? 0
+          areaMap[key].children += b.children ?? 0
+          areaMap[key].seniors  += b.seniors  ?? 0
+          areaMap[key].pwd      += b.pwd      ?? 0
         }
       } else if (entryAreas.length === 1) {
         // Older entry with no stored breakdown, but only one area involved —
         // the combined total IS that area's total, so this is still accurate.
         const area = entryAreas[0]
-        if (!areaMap[area]) areaMap[area] = { adults: 0, children: 0, seniors: 0, pwd: 0 }
-        areaMap[area].adults   += (e.num_adults   ?? 0)
-        areaMap[area].children += (e.num_children ?? 0)
-        areaMap[area].seniors  += (e.num_seniors  ?? 0)
-        areaMap[area].pwd      += (e.num_pwd      ?? 0)
+        const key = `${area}::${period}`
+        if (!areaMap[key]) areaMap[key] = { area, period, adults: 0, children: 0, seniors: 0, pwd: 0 }
+        areaMap[key].adults   += (e.num_adults   ?? 0)
+        areaMap[key].children += (e.num_children ?? 0)
+        areaMap[key].seniors  += (e.num_seniors  ?? 0)
+        areaMap[key].pwd      += (e.num_pwd      ?? 0)
       }
       // else: older multi-area entry with no stored breakdown — can't be
       // split accurately, so it's intentionally left out rather than
       // double-counted. See area_breakdown backfill note.
     }
-    const getRate = (area: string, type: string) =>
-      (rates ?? []).find(r => r.area === area && r.guest_type === type)?.rate ?? 0
+    // Disambiguate by period too — the same area name (e.g. "Pool") can have
+    // a different rate for a Night Use session than for Day Use.
+    const getRate = (area: string, type: string, period: string) =>
+      (rates ?? []).find(r => r.area === area && r.guest_type === type && (r as any).period === period)?.rate
+      ?? (rates ?? []).find(r => r.area === area && r.guest_type === type)?.rate ?? 0
 
-    setDayUseStats(Object.entries(areaMap).map(([area, c]) => {
-      const adultRate   = getRate(area, 'adult')
-      const childRate   = getRate(area, 'child')
-      const seniorRate  = getRate(area, 'senior')
-      const pwdRate     = getRate(area, 'pwd')
+    setDayUseStats(Object.values(areaMap).map(c => {
+      const adultRate   = getRate(c.area, 'adult', c.period)
+      const childRate   = getRate(c.area, 'child', c.period)
+      const seniorRate  = getRate(c.area, 'senior', c.period)
+      const pwdRate     = getRate(c.area, 'pwd', c.period)
       const subtotal    = c.adults * adultRate + c.children * childRate + c.seniors * seniorRate + c.pwd * pwdRate
       return {
-        area,
+        area: c.period === 'night' ? `${c.area} (Night)` : c.area,
         adults: c.adults, children: c.children, seniors: c.seniors, pwd: c.pwd,
         total: c.adults + c.children + c.seniors + c.pwd,
         adultRate, childRate, seniorRate, pwdRate, subtotal,
@@ -399,52 +416,68 @@ export default function RemittancePage() {
     if (!shift) return
 
     // Fetch all transactions for this shift
-    const [{ data: txns }, { data: entries }, { data: rates }] = await Promise.all([
+    const [{ data: txns }, { data: entries }, { data: rates }, { data: cottageAddons }] = await Promise.all([
       supabase.from('transactions')
         .select('amount, payment_method, txn_type, description, created_at')
         .gte('created_at', shift.opened_at).lte('created_at', shift.closed_at ?? new Date().toISOString())
         .eq('voided', false)
         .order('created_at'),
       supabase.from('day_use_entries')
-        .select('area, area_breakdown, num_adults, num_children, num_seniors, num_pwd, transactions!day_use_id(voided)')
+        .select('area, area_breakdown, num_adults, num_children, num_seniors, num_pwd, period, transactions!day_use_id(voided)')
         .gte('created_at', shift.opened_at).lte('created_at', shift.closed_at ?? new Date().toISOString()),
-      supabase.from('day_use_rates').select('area, guest_type, rate').eq('is_active', true),
+      supabase.from('day_use_rates').select('area, guest_type, rate, period').eq('is_active', true),
+      // Cottage add-ons charged mid-stay to an active room guest (via
+      // CheckInOutPage "Add Extra"). These don't get their own transaction
+      // row — they ride on the guest's lump "room" payment at check-out —
+      // so they're pulled straight from booking_addons for this itemized
+      // breakdown, same idea as the day-use area breakdown above.
+      supabase.from('booking_addons')
+        .select('name, quantity, unit_price, total_price, created_at')
+        .eq('category', 'cottage_addon')
+        .gte('created_at', shift.opened_at).lte('created_at', shift.closed_at ?? new Date().toISOString())
+        .order('created_at'),
     ])
 
     // Build day use pax breakdown with rates and subtotals — skip voided
-    const areaMap: Record<string, { adults: number; children: number; seniors: number; pwd: number }> = {}
+    const areaMap: Record<string, { area: string; period: string; adults: number; children: number; seniors: number; pwd: number }> = {}
     for (const e of entries ?? []) {
       const entryTxns = (e as any).transactions
       const isVoided = Array.isArray(entryTxns) ? entryTxns.some((t: any) => t.voided) : entryTxns?.voided === true
       if (isVoided) continue
+      const period = (e as any).period ?? 'day'
       const breakdown = (e as any).area_breakdown as
         { area: string; adults: number; children: number; seniors: number; pwd: number }[] | null
       const areas = (e.area ?? '').split(',').map((a: string) => a.trim()).filter(Boolean)
 
       if (breakdown?.length) {
         for (const b of breakdown) {
-          if (!areaMap[b.area]) areaMap[b.area] = { adults: 0, children: 0, seniors: 0, pwd: 0 }
-          areaMap[b.area].adults   += b.adults   ?? 0
-          areaMap[b.area].children += b.children ?? 0
-          areaMap[b.area].seniors  += b.seniors  ?? 0
-          areaMap[b.area].pwd      += b.pwd      ?? 0
+          const key = `${b.area}::${period}`
+          if (!areaMap[key]) areaMap[key] = { area: b.area, period, adults: 0, children: 0, seniors: 0, pwd: 0 }
+          areaMap[key].adults   += b.adults   ?? 0
+          areaMap[key].children += b.children ?? 0
+          areaMap[key].seniors  += b.seniors  ?? 0
+          areaMap[key].pwd      += b.pwd      ?? 0
         }
       } else if (areas.length === 1) {
         const a = areas[0]
-        if (!areaMap[a]) areaMap[a] = { adults: 0, children: 0, seniors: 0, pwd: 0 }
-        areaMap[a].adults   += (e.num_adults   ?? 0)
-        areaMap[a].children += (e.num_children ?? 0)
-        areaMap[a].seniors  += (e.num_seniors  ?? 0)
-        areaMap[a].pwd      += (e.num_pwd      ?? 0)
+        const key = `${a}::${period}`
+        if (!areaMap[key]) areaMap[key] = { area: a, period, adults: 0, children: 0, seniors: 0, pwd: 0 }
+        areaMap[key].adults   += (e.num_adults   ?? 0)
+        areaMap[key].children += (e.num_children ?? 0)
+        areaMap[key].seniors  += (e.num_seniors  ?? 0)
+        areaMap[key].pwd      += (e.num_pwd      ?? 0)
       }
     }
-    const getRate = (area: string, type: string) =>
-      (rates ?? []).find((r: any) => r.area === area && r.guest_type === type)?.rate ?? 0
-    const areaRows = Object.entries(areaMap)
+    // Disambiguate by period — the same area name (e.g. "Pool") can have a
+    // different rate for a Night Use session than for Day Use.
+    const getRate = (area: string, type: string, period: string) =>
+      (rates ?? []).find((r: any) => r.area === area && r.guest_type === type && r.period === period)?.rate
+      ?? (rates ?? []).find((r: any) => r.area === area && r.guest_type === type)?.rate ?? 0
+    const areaRows = Object.values(areaMap).map(c => [c.period === 'night' ? `${c.area} (Night)` : c.area, c, c.period] as const)
     const totalDayUsePax = areaRows.reduce((s, [, c]) => s + c.adults + c.children + c.seniors + c.pwd, 0)
-    const totalDayUseAmt = areaRows.reduce((s, [area, c]) =>
-      s + c.adults * getRate(area,'adult') + c.children * getRate(area,'child') +
-          c.seniors * getRate(area,'senior') + c.pwd * getRate(area,'pwd'), 0)
+    const totalDayUseAmt = areaRows.reduce((s, [, c, period]) =>
+      s + c.adults * getRate(c.area, 'adult', period) + c.children * getRate(c.area, 'child', period) +
+          c.seniors * getRate(c.area, 'senior', period) + c.pwd * getRate(c.area, 'pwd', period), 0)
 
     // Walk-in / room booking transactions
     const roomTxns = (txns ?? []).filter((t: any) => t.txn_type === 'room' || t.txn_type === 'reservation_fee')
@@ -488,12 +521,28 @@ export default function RemittancePage() {
     <div class="row bold"><span>Total POS</span><span>₱${posTotal.toLocaleString()}</span></div>
     ` : ''
 
+    // Cottage add-ons breakdown (charged to an already-checked-in room guest)
+    const cottageAddonRows = cottageAddons ?? []
+    const cottageAddonTotal = cottageAddonRows.reduce((s: number, a: any) => s + Number(a.total_price ?? a.unit_price * a.quantity), 0)
+
+    const cottageAddonSection = cottageAddonRows.length > 0 ? `
+    <div class="divider"></div>
+    <div class="bold small">COTTAGE ADD-ONS (${cottageAddonRows.length})</div>
+    ${cottageAddonRows.map((a: any) => {
+      const time = new Date(a.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
+      const amount = Number(a.total_price ?? a.unit_price * a.quantity)
+      return `<div class="row small"><span>${escapeHtml(time)} ${escapeHtml(a.name)}</span><span>₱${amount.toLocaleString()}</span></div>`
+    }).join('')}
+    <div class="row bold"><span>Total Cottage Add-ons</span><span>₱${cottageAddonTotal.toLocaleString()}</span></div>
+    <div class="small" style="color:#888">(Already included in Walk-in / Room Bookings above — collected at check-out.)</div>
+    ` : ''
+
     const dayUseSection = areaRows.length > 0 ? `
     <div class="divider"></div>
     <div class="bold small">DAY USE BREAKDOWN</div>
     <div class="row" style="font-size:10px;color:#888"><span>Type</span><span>Pax</span><span>Rate</span><span>Amount</span></div>
-    ${areaRows.map(([area, c]) => {
-      const ar = getRate(area,'adult'), cr = getRate(area,'child'), sr = getRate(area,'senior'), pr = getRate(area,'pwd')
+    ${areaRows.map(([area, c, period]) => {
+      const ar = getRate(c.area,'adult',period), cr = getRate(c.area,'child',period), sr = getRate(c.area,'senior',period), pr = getRate(c.area,'pwd',period)
       const rows = [
         c.adults   > 0 ? `<div class="row small"><span>&nbsp;Adult</span><span>${c.adults}</span><span>₱${ar.toLocaleString()}</span><span>₱${(c.adults*ar).toLocaleString()}</span></div>`   : '',
         c.children > 0 ? `<div class="row small"><span>&nbsp;Child</span><span>${c.children}</span><span>₱${cr.toLocaleString()}</span><span>₱${(c.children*cr).toLocaleString()}</span></div>` : '',
@@ -558,6 +607,7 @@ ${rem.variance_remarks ? `<div class="small">Remarks: ${escapeHtml(rem.variance_
 
 ${dayUseSection}
 ${roomSection}
+${cottageAddonSection}
 ${eqSection}
 ${posSection}
 
@@ -783,7 +833,7 @@ ${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>$
                 {/* Day Use Breakdown */}
                 {dayUseStats.length > 0 && (
                   <div className="mb-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-                    <div className="text-xs font-semibold text-blue-700 mb-2">🏖️ Day Use Pax Breakdown</div>
+                    <div className="text-xs font-semibold text-blue-700 mb-2">🏖️ Day/Night Pass Pax Breakdown</div>
                     {dayUseStats.map((s, i) => (
                       <div key={i} className="mb-2">
                         <div className="text-xs font-semibold text-blue-700">{s.area}</div>
@@ -803,7 +853,7 @@ ${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>$
                       </div>
                     ))}
                     <div className="flex justify-between text-xs pt-1 mt-1 border-t border-blue-300 font-bold text-blue-800">
-                      <span>Total Day Use — {dayUseStats.reduce((s, a) => s + a.total, 0)} pax</span>
+                      <span>Total Day/Night Pass — {dayUseStats.reduce((s, a) => s + a.total, 0)} pax</span>
                       <span>₱{dayUseStats.reduce((s, a) => s + a.subtotal, 0).toLocaleString()}</span>
                     </div>
                   </div>
@@ -829,6 +879,29 @@ ${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>$
                         <span>Total — {roomTxns.length} booking(s)</span>
                         <span>₱{total.toLocaleString()}</span>
                       </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Cottage Add-ons Breakdown (charged mid-stay to an active room guest) */}
+                {cottageAddonLines.length > 0 && (() => {
+                  const total = cottageAddonLines.reduce((s, a) => s + Number(a.total_price ?? a.unit_price * a.quantity), 0)
+                  return (
+                    <div className="mb-3 bg-teal-50 border border-teal-200 rounded-lg px-3 py-2">
+                      <div className="text-xs font-semibold text-teal-700 mb-2">🏖️ Cottage Add-ons</div>
+                      <div className="space-y-1 max-h-28 overflow-y-auto">
+                        {cottageAddonLines.map((a, i) => (
+                          <div key={i} className="flex justify-between text-xs text-teal-700">
+                            <span className="truncate pr-2">{a.name}</span>
+                            <span className="shrink-0 font-medium">₱{Number(a.total_price ?? a.unit_price * a.quantity).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-between text-xs font-bold text-teal-800 border-t border-teal-300 pt-1 mt-1">
+                        <span>Total — {cottageAddonLines.length} add-on(s)</span>
+                        <span>₱{total.toLocaleString()}</span>
+                      </div>
+                      <div className="text-[10px] text-teal-500 mt-1">Already included in Walk-in / Room Bookings above — collected at check-out for overnight stays, or at add-time for Day/Night Pass guests.</div>
                     </div>
                   )
                 })()}

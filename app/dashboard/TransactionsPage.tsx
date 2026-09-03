@@ -311,7 +311,7 @@ export default function TransactionsPage() {
               <option value="pos">POS</option>
               <option value="checkin">Check-in</option>
               <option value="checkout">Check-out</option>
-              <option value="dayuse">Day Use</option>
+              <option value="dayuse">Day/Night Pass</option>
               <option value="booking">Booking</option>
               <option value="payment">Payment</option>
               <option value="refund">Refund</option>

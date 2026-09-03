@@ -8,6 +8,7 @@
 export interface ResortInfo {
   name: string
   phone: string
+  address: string
   checkInTime: string
   checkOutTime: string
 }
@@ -88,7 +89,7 @@ export const emailTemplates = {
       </a>` : ''}
     </div>
     <div class="footer">
-      ${resort.name} &bull; Sarangani, South Cotabato &bull; ${resort.phone}<br>
+      ${resort.name} &bull; ${resort.address} &bull; ${resort.phone}<br>
       &copy; ${new Date().getFullYear()} ${resort.name}. All rights reserved.
     </div>
   </div>

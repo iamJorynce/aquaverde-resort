@@ -59,4 +59,186 @@ textarea {
   * {
     overflow: visible !important;
   }
+
+  /* -----------------------------------------------------------------------
+     REPORT PRINT STYLING — scoped to .report-print-area (the Reports page
+     body). The fixes above stop content from being clipped, but on their
+     own the printed page still shows the exact same rounded, colorful
+     "dashboard widget" cards as the screen — which reads as a screenshot
+     of the app, not a formatted report. These rules flatten that chrome
+     into something closer to an actual printed document: square corners,
+     visible borders, muted color, ruled tables, and report-style section
+     headings instead of small gray widget labels.
+     ----------------------------------------------------------------------- */
+  .report-print-area {
+    color: #111827 !important;
+    font-family: Georgia, 'Times New Roman', serif;
+  }
+
+  .report-print-area * {
+    box-shadow: none !important;
+    border-radius: 2px !important;
+  }
+
+  /* Card containers → plain ruled boxes instead of soft rounded tiles */
+  .report-print-area .border-gray-100,
+  .report-print-area .border-gray-50 {
+    border-color: #9ca3af !important;
+  }
+
+  /* Colored KPI/summary tiles (bg-blue-50 etc.) → plain white + border,
+     so the page reads as data on paper, not colored UI panels */
+  .report-print-area .bg-blue-50,
+  .report-print-area .bg-green-50,
+  .report-print-area .bg-teal-50,
+  .report-print-area .bg-amber-50,
+  .report-print-area .bg-yellow-50,
+  .report-print-area .bg-purple-50,
+  .report-print-area .bg-gray-50 {
+    background: #ffffff !important;
+    border: 1px solid #d1d5db !important;
+  }
+  .report-print-area .text-blue-700,
+  .report-print-area .text-green-700,
+  .report-print-area .text-teal-600,
+  .report-print-area .text-teal-700 {
+    color: #111827 !important;
+  }
+
+  /* Status/category pill badges → outlined text instead of a filled
+     color chip — keeps the signal, drops the "app button" look */
+  .report-print-area .rounded-full {
+    background: transparent !important;
+    border: 1px solid currentColor !important;
+    padding: 1px 6px !important;
+  }
+
+  /* Card/section titles ("Daily Sales" etc.) → report subheadings:
+     bold, uppercase, ruled underneath — not small dashboard-widget labels */
+  .report-print-area .text-sm.font-medium.text-gray-700,
+  .report-print-area .text-sm.font-semibold.text-gray-700 {
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid #9ca3af;
+    padding-bottom: 4px;
+    margin-bottom: 8px !important;
+    color: #111827 !important;
+  }
+
+  /* Tables → ruled gridlines, like a printed statement, not a web list */
+  .report-print-area table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+  .report-print-area th,
+  .report-print-area td {
+    border: 1px solid #d1d5db !important;
+  }
+  .report-print-area thead {
+    background: #f3f4f6 !important;
+    display: table-header-group;
+  }
+
+  table { break-inside: auto; }
+  tr { break-inside: avoid; break-after: auto; }
+}
+
+/* =========================================================================
+   PUBLIC SITE ANIMATIONS
+   Used across app/(public)/* — hero entrances, scroll reveals (via the
+   <Reveal> component in components/public/Reveal.tsx), and shared hover /
+   micro-interaction utilities. Kept separate from the dashboard styles
+   above on purpose so dashboard pages are unaffected.
+   ========================================================================= */
+
+@keyframes pubFadeUp {
+  from { opacity: 0; transform: translateY(26px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pubFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pubFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-10px); }
+}
+
+/* Hero entrance — plays automatically on page load, no JS required.
+   Apply .pub-hero-in to each hero element, stagger with inline
+   style={{ animationDelay: '120ms' }} etc. */
+.pub-hero-in {
+  animation: pubFadeUp 0.9s cubic-bezier(0.16, 0.84, 0.44, 1) both;
+}
+
+/* Scroll reveal — driven by the <Reveal> client component, which toggles
+   the "pub-reveal-in" class via IntersectionObserver. */
+.pub-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.8s cubic-bezier(0.16, 0.84, 0.44, 1),
+              transform 0.8s cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+.pub-reveal-scale {
+  opacity: 0;
+  transform: scale(0.94);
+  transition: opacity 0.7s cubic-bezier(0.16, 0.84, 0.44, 1),
+              transform 0.7s cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+.pub-reveal-left {
+  opacity: 0;
+  transform: translateX(-30px);
+  transition: opacity 0.8s cubic-bezier(0.16, 0.84, 0.44, 1),
+              transform 0.8s cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+.pub-reveal-right {
+  opacity: 0;
+  transform: translateX(30px);
+  transition: opacity 0.8s cubic-bezier(0.16, 0.84, 0.44, 1),
+              transform 0.8s cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+.pub-reveal-in {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* Step-content transition on the public booking form — remounts (via
+   React `key`) on every step change, so this animation just replays. */
+.pub-step-in {
+  animation: pubFadeUp 0.5s cubic-bezier(0.16, 0.84, 0.44, 1) both;
+}
+
+/* Gentle floating decoration, e.g. a small icon or accent shape. */
+.pub-float {
+  animation: pubFloat 4.5s ease-in-out infinite;
+}
+
+/* Shared hover / press micro-interaction for cards and images. */
+.pub-hover-lift {
+  transition: transform 0.35s cubic-bezier(0.16, 0.84, 0.44, 1), box-shadow 0.35s ease;
+}
+.pub-hover-lift:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px -18px rgba(15, 38, 38, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pub-hero-in,
+  .pub-step-in,
+  .pub-float {
+    animation: none !important;
+  }
+  .pub-reveal,
+  .pub-reveal-scale,
+  .pub-reveal-left,
+  .pub-reveal-right {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .pub-hover-lift {
+    transition: none !important;
+  }
 }

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getResortSettings } from '@/lib/resort-settings'
 import TideLine from '@/components/public/TideLine'
 import RoomGallery from '@/components/public/RoomGallery'
+import Reveal from '@/components/public/Reveal'
 
 const IMG_ROOM     = 'https://images.unsplash.com/photo-1746549855427-57e6da7040db'
 const IMG_COTTAGES = 'https://images.unsplash.com/photo-1756573345813-7caa2f412606'
@@ -36,8 +37,8 @@ export default async function RoomsPage() {
         <img src={`${IMG_ROOM}?w=1800&q=80&auto=format&fit=crop`} alt="Hotel room interior" className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(15,38,38,0.25) 0%, rgba(15,38,38,0.75) 100%)' }} />
         <div className="relative max-w-7xl mx-auto px-5 md:px-8 pb-14 md:pb-16 w-full">
-          <div className="text-white/70 text-[12.5px] tracking-[0.2em] uppercase mb-4" style={{ fontFamily: 'Work Sans, sans-serif' }}>Accommodations</div>
-          <h1 className="text-white text-[38px] md:text-[54px] leading-tight" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>
+          <div className="pub-hero-in text-white/70 text-[12.5px] tracking-[0.2em] uppercase mb-4" style={{ fontFamily: 'Work Sans, sans-serif' }}>Overnight Stay</div>
+          <h1 className="pub-hero-in text-white text-[38px] md:text-[54px] leading-tight" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, animationDelay: '120ms' }}>
             Rooms &amp; Rates
           </h1>
         </div>
@@ -46,11 +47,13 @@ export default async function RoomsPage() {
       {/* ===== INTRO ===== */}
       <section className="pt-16 pb-4" style={{ background: '#FAF6EF' }}>
         <div className="max-w-3xl mx-auto px-5 md:px-8 text-center">
+          <Reveal variant="scale">
           <p className="text-[18px] md:text-[22px] leading-relaxed" style={{ fontFamily: 'Fraunces, serif', fontWeight: 400, color: '#1A2E2B' }}>
             Each room is built around the same idea — let the outside in, and give you
             one less reason to leave.
           </p>
           <TideLine />
+          </Reveal>
         </div>
       </section>
 
@@ -66,7 +69,8 @@ export default async function RoomsPage() {
               {roomTypes.map((rt, i) => {
                 const available = availableByType[rt.id] ?? 0
                 return (
-                  <div key={rt.id} className="rounded-2xl overflow-hidden flex flex-col md:flex-row" style={{ background: '#fff' }}>
+                  <Reveal key={rt.id} delay={Math.min(i, 4) * 80}>
+                  <div className="pub-hover-lift rounded-2xl overflow-hidden flex flex-col md:flex-row" style={{ background: '#fff' }}>
                     <div className="md:w-72 h-56 md:h-auto flex-shrink-0 relative">
                       <RoomGallery
                         images={rt.image_urls?.length ? rt.image_urls : [`${[IMG_ROOM, IMG_COTTAGES][i % 2]}?w=700&q=80&auto=format&fit=crop`]}
@@ -112,7 +116,7 @@ export default async function RoomsPage() {
                         </div>
                         <Link
                           href={`/booking?type=${rt.id}`}
-                          className="px-5 py-2.5 rounded-full text-[13.5px] font-medium tracking-wide transition-all"
+                          className="px-5 py-2.5 rounded-full text-[13.5px] font-medium tracking-wide transition-all duration-300 hover:brightness-110 hover:-translate-y-0.5 hover:shadow-md active:scale-95"
                           style={{
                             background: available > 0 ? '#C97B4A' : '#E5E0D3',
                             color: available > 0 ? '#fff' : '#9A9182',
@@ -125,6 +129,7 @@ export default async function RoomsPage() {
                       </div>
                     </div>
                   </div>
+                  </Reveal>
                 )
               })}
             </div>
@@ -143,12 +148,14 @@ export default async function RoomsPage() {
               { title: 'Reservation Fee', desc: 'A 50% deposit of your total bill confirms your booking online. This amount is non-refundable.' },
               { title: 'Check-in / Check-out', desc: `Check-in from ${settings.check_in_time}. Check-out by ${settings.check_out_time}. Early or late arrangements available on request.` },
               { title: 'Cancellations', desc: 'Cancellations made 48 hours before check-in may be rescheduled. The reservation fee is non-refundable.' },
-            ].map(p => (
-              <div key={p.title}>
+            ].map((p, i) => (
+              <Reveal key={p.title} delay={i * 100}>
+              <div>
                 <div className="w-8 h-px mb-4" style={{ background: '#C97B4A' }} />
                 <h3 className="text-white text-[17px] mb-2.5" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500 }}>{p.title}</h3>
                 <p className="text-white/60 text-[14px] leading-relaxed" style={{ fontFamily: 'Work Sans, sans-serif' }}>{p.desc}</p>
               </div>
+              </Reveal>
             ))}
           </div>
         </div>

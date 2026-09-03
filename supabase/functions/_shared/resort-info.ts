@@ -3,6 +3,7 @@ import type { ResortInfo } from './templates.ts'
 const DEFAULT_RESORT_INFO: ResortInfo = {
   name: 'AquaVerde Beach Resort',
   phone: Deno.env.get('RESORT_PHONE') ?? '+63 912 345 6789',
+  address: 'Sarangani, South Cotabato, PH',
   checkInTime: '2:00 PM',
   checkOutTime: '12:00 PM',
 }
@@ -15,7 +16,7 @@ export async function getResortInfo(supabase: any): Promise<ResortInfo> {
   try {
     const { data, error } = await supabase
       .from('resort_settings')
-      .select('resort_name, contact, check_in_time, check_out_time')
+      .select('resort_name, contact, address, check_in_time, check_out_time')
       .eq('id', 1)
       .single()
 
@@ -24,6 +25,7 @@ export async function getResortInfo(supabase: any): Promise<ResortInfo> {
     return {
       name: data.resort_name ?? DEFAULT_RESORT_INFO.name,
       phone: data.contact ?? DEFAULT_RESORT_INFO.phone,
+      address: data.address ?? DEFAULT_RESORT_INFO.address,
       checkInTime: data.check_in_time ?? DEFAULT_RESORT_INFO.checkInTime,
       checkOutTime: data.check_out_time ?? DEFAULT_RESORT_INFO.checkOutTime,
     }

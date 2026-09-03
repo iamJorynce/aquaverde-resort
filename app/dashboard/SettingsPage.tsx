@@ -112,7 +112,7 @@ export default function SettingsPage() {
         <div className="text-sm font-medium text-gray-700 mb-3">Resort Information</div>
         <div className="space-y-3">
           {[
-            { key: 'resort_name', label: 'Resort Name' },
+            { key: 'resort_name', label: 'Resort/Hotel Name' },
             { key: 'contact', label: 'Contact Number' },
             { key: 'email', label: 'Email' },
             { key: 'address', label: 'Address' },

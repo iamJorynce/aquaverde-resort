@@ -10,7 +10,7 @@ import { useResortSettings } from '@/hooks/useResortSettings'
 import { printReceipt } from './receipt'
 import { createOrUpdateInvoice } from './invoiceUtils'
 
-interface RateRow { id: string; name: string; guest_type: string; area: string; rate: number }
+interface RateRow { id: string; name: string; guest_type: string; area: string; rate: number; period: string }
 interface CottageOption { id: string; name: string; cottage_code: string; day_rate: number; status: string }
 interface EquipmentOption { id: string; name: string; hourly_rate: number | null; daily_rate: number | null; available_qty: number }
 
@@ -33,8 +33,14 @@ export default function DayUsePage() {
 
   // Rates management
   const [editingRates, setEditingRates] = useState(false)
-  const [rateForm, setRateForm] = useState<Record<string, { name: string; guest_type: string; area: string; rate: number }>>({})
-  const [newRate, setNewRate] = useState({ name: '', guest_type: 'adult', area: '', rate: 0 })
+  const [rateForm, setRateForm] = useState<Record<string, { name: string; guest_type: string; area: string; rate: number; period: string }>>({})
+  const [newRate, setNewRate] = useState({ name: '', guest_type: 'adult', area: '', rate: 0, period: 'day' })
+
+  // Day Use and Night Use are the same product (same areas, cottages,
+  // wristband flow) — the only difference is which rate table applies.
+  // This toggle just changes which day_use_rates rows (period='day' vs
+  // 'night') feed the area list and fee calculation below.
+  const [entryPeriod, setEntryPeriod] = useState<'day' | 'night'>('day')
 
   // Per-area guest counts — key is area name
   const [areaCounts, setAreaCounts] = useState<Record<string, AreaCounts>>({})
@@ -75,10 +81,16 @@ export default function DayUsePage() {
 
   useEffect(() => { load() }, [role])
 
-  const areas = Array.from(new Set(rates.map(r => r.area)))
+  const periodRates = rates.filter(r => r.period === entryPeriod)
+  const areas = Array.from(new Set(periodRates.map(r => r.area)))
 
   function getRate(area: string, type: string) {
-    return rates.find(r => r.area === area && r.guest_type === type)?.rate ?? 0
+    return periodRates.find(r => r.area === area && r.guest_type === type)?.rate ?? 0
+  }
+
+  function switchPeriod(p: 'day' | 'night') {
+    setEntryPeriod(p)
+    setAreaCounts({}) // areas/rates differ per period — start counts fresh
   }
 
   function setCount(area: string, type: keyof AreaCounts, value: number) {
@@ -155,7 +167,7 @@ export default function DayUsePage() {
     e.preventDefault()
     for (const r of rates) {
       const u = rateForm[r.id]
-      if (u) await supabase.from('day_use_rates').update({ name: u.name ?? r.name, guest_type: u.guest_type ?? r.guest_type, area: u.area ?? r.area, rate: u.rate ?? r.rate }).eq('id', r.id)
+      if (u) await supabase.from('day_use_rates').update({ name: u.name ?? r.name, guest_type: u.guest_type ?? r.guest_type, area: u.area ?? r.area, rate: u.rate ?? r.rate, period: u.period ?? r.period }).eq('id', r.id)
     }
     setEditingRates(false)
     load()
@@ -163,8 +175,8 @@ export default function DayUsePage() {
 
   async function addNewRate() {
     if (!newRate.name || !newRate.area || newRate.rate <= 0) return
-    await supabase.from('day_use_rates').insert({ ...newRate, is_active: true })
-    setNewRate({ name: '', guest_type: 'adult', area: '', rate: 0 })
+    await supabase.from('day_use_rates').insert({ ...newRate, period: entryPeriod, is_active: true })
+    setNewRate({ name: '', guest_type: 'adult', area: '', rate: 0, period: entryPeriod })
     load()
   }
 
@@ -177,6 +189,7 @@ export default function DayUsePage() {
   // ---- Submit ----
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!form.guest_name.trim()) { setError('Guest name is required.'); return }
     if (totalPax === 0) { setError('Please enter the number of guests.'); return }
     setLoading(true)
     setError('')
@@ -218,6 +231,7 @@ export default function DayUsePage() {
         guest_phone: form.guest_phone || null,
         area: activeAreas.join(', '),
         area_breakdown: areaBreakdownJson,
+        period: entryPeriod,
         num_adults: areas.reduce((s, a) => s + (areaCounts[a]?.adult ?? 0), 0),
         num_children: areas.reduce((s, a) => s + (areaCounts[a]?.child ?? 0), 0),
         num_seniors: areas.reduce((s, a) => s + (areaCounts[a]?.senior ?? 0), 0),
@@ -228,6 +242,7 @@ export default function DayUsePage() {
         payment_method: payment.method,
         wristbands,
         notes: [
+          entryPeriod === 'night' ? 'Night Pass' : null,
           areaSummary,
           selectedCottages.length > 1 ? `Cottages: ${selectedCottages.map(c => c.cottage_code).join(', ')}` : null,
         ].filter(Boolean).join(' | ') || null,
@@ -261,6 +276,7 @@ const { data: dayUseBooking, error: bookingError } = await supabase.from('bookin
   guest_id: duGuest.id,  // ← TAMA na
   booking_type: 'walk_in',
   accommodation_type: 'day_use',
+  period: entryPeriod,
   cottage_id: selectedCottages[0]?.id ?? null,
   cottage_ids: selectedCottages.map(c => c.id),
   num_adults:   totalAdults,
@@ -283,7 +299,7 @@ if (bookingError) throw new Error('Booking insert failed: ' + bookingError.messa
         txn_number: `TXN-${Date.now()}`,
         day_use_id: entry.id,
         txn_type: 'day_use',
-        description: `Day Use (${activeAreas.join(', ')}) — ${totalPax} guest(s)`,
+        description: `${entryPeriod === 'night' ? 'Night Pass' : 'Day Pass'} (${activeAreas.join(', ')}) — ${totalPax} guest(s)`,
         amount: total,
         payment_method: payment.method,
       })
@@ -335,7 +351,7 @@ printReceipt({
   title: resortSettings.resort_name,
   subtitle: resortSettings.address,
   receiptNumber: entryNumber,
-  receiptType: 'Day Use Receipt',
+  receiptType: entryPeriod === 'night' ? 'Night Pass Receipt' : 'Day Pass Receipt',
   date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
   guestName: form.guest_name || 'Walk-in Guest',
   guestContact: form.guest_phone || undefined,
@@ -359,7 +375,7 @@ if (dayUseBooking) {
     subtotal: total,
     total,
     amount_paid: total,
-    notes: `Day Use Entry — ${entryNumber}`,
+    notes: `${entryPeriod === 'night' ? 'Night Pass' : 'Day Pass'} Entry — ${entryNumber}`,
   })
   // Store day use line items as booking_addons for itemized receipt
 if (dayUseBooking) {
@@ -441,7 +457,7 @@ if (dayUseBooking) {
           {/* Rates panel */}
           <div className="bg-white border border-gray-100 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-medium text-gray-700">Day Use Rates</div>
+              <div className="text-sm font-medium text-gray-700">{entryPeriod === 'night' ? 'Night Pass Rates' : 'Day Pass Rates'}</div>
               {isAdmin && (
                 <button onClick={() => setEditingRates(!editingRates)}
                   className={`text-xs px-2.5 py-1 rounded-lg ${editingRates ? 'bg-blue-700 text-white' : 'border border-gray-200 text-gray-600'}`}>
@@ -450,18 +466,57 @@ if (dayUseBooking) {
               )}
             </div>
 
+            {/* Same product as Day Use — just a different rate table.
+                Switching here also drives which areas/rates the guest-count
+                form below applies, and gets stamped on the entry. */}
+            <div className="flex gap-2 mb-4">
+              <button type="button" onClick={() => switchPeriod('day')}
+                className={`flex-1 py-2 text-xs rounded-lg font-medium ${entryPeriod === 'day' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                ☀️ Day Pass
+              </button>
+              <button type="button" onClick={() => switchPeriod('night')}
+                className={`flex-1 py-2 text-xs rounded-lg font-medium ${entryPeriod === 'night' ? 'bg-indigo-700 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                🌙 Night Pass
+              </button>
+            </div>
+
             {editingRates ? (
               <form onSubmit={saveRates} className="space-y-3">
                 {areas.map(area => (
                   <div key={area}>
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{area}</div>
-                    {rates.filter(r => r.area === area).map(r => (
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Package:</span>
+                      <input
+                        defaultValue={area}
+                        onBlur={e => {
+                          const newArea = e.target.value.trim()
+                          if (!newArea || newArea === area) { e.target.value = area; return }
+                          // Renaming the package/area applies to every rate
+                          // row currently grouped under it.
+                          setRateForm(p => {
+                            const next = { ...p }
+                            periodRates.filter(r => r.area === area).forEach(r => {
+                              next[r.id] = {
+                                name: p[r.id]?.name ?? r.name,
+                                guest_type: p[r.id]?.guest_type ?? r.guest_type,
+                                area: newArea,
+                                rate: p[r.id]?.rate ?? r.rate,
+                                period: p[r.id]?.period ?? r.period,
+                              }
+                            })
+                            return next
+                          })
+                        }}
+                        className="flex-1 px-2 py-1 border border-blue-200 rounded text-xs font-semibold text-gray-700 uppercase tracking-wide bg-blue-50"
+                      />
+                    </div>
+                    {periodRates.filter(r => r.area === area).map(r => (
                       <div key={r.id} className="flex items-center gap-1.5 mb-1.5">
                         <input value={rateForm[r.id]?.name ?? r.name}
-                          onChange={e => setRateForm(p => ({ ...p, [r.id]: { ...p[r.id], name: e.target.value, guest_type: p[r.id]?.guest_type ?? r.guest_type, area: p[r.id]?.area ?? r.area, rate: p[r.id]?.rate ?? r.rate } }))}
+                          onChange={e => setRateForm(p => ({ ...p, [r.id]: { ...p[r.id], name: e.target.value, guest_type: p[r.id]?.guest_type ?? r.guest_type, area: p[r.id]?.area ?? r.area, rate: p[r.id]?.rate ?? r.rate, period: p[r.id]?.period ?? r.period } }))}
                           className="flex-1 px-2 py-1 border border-gray-200 rounded text-xs text-gray-900 bg-white" />
                         <select value={rateForm[r.id]?.guest_type ?? r.guest_type}
-                          onChange={e => setRateForm(p => ({ ...p, [r.id]: { ...p[r.id], guest_type: e.target.value, name: p[r.id]?.name ?? r.name, area: p[r.id]?.area ?? r.area, rate: p[r.id]?.rate ?? r.rate } }))}
+                          onChange={e => setRateForm(p => ({ ...p, [r.id]: { ...p[r.id], guest_type: e.target.value, name: p[r.id]?.name ?? r.name, area: p[r.id]?.area ?? r.area, rate: p[r.id]?.rate ?? r.rate, period: p[r.id]?.period ?? r.period } }))}
                           className="w-18 px-1 py-1 border border-gray-200 rounded text-xs text-gray-900 bg-white">
                           <option value="adult">adult</option>
                           <option value="child">child</option>
@@ -469,7 +524,7 @@ if (dayUseBooking) {
                           <option value="pwd">pwd</option>
                         </select>
                         <input type="number" value={rateForm[r.id]?.rate ?? r.rate}
-                          onChange={e => setRateForm(p => ({ ...p, [r.id]: { ...p[r.id], rate: parseFloat(e.target.value) || 0, name: p[r.id]?.name ?? r.name, guest_type: p[r.id]?.guest_type ?? r.guest_type, area: p[r.id]?.area ?? r.area } }))}
+                          onChange={e => setRateForm(p => ({ ...p, [r.id]: { ...p[r.id], rate: parseFloat(e.target.value) || 0, name: p[r.id]?.name ?? r.name, guest_type: p[r.id]?.guest_type ?? r.guest_type, area: p[r.id]?.area ?? r.area, period: p[r.id]?.period ?? r.period } }))}
                           className="w-20 px-2 py-1 border border-gray-200 rounded text-xs text-gray-900 bg-white text-right" />
                         <button type="button" onClick={() => deleteRate(r.id)} className="text-xs text-red-400 hover:text-red-600">Del</button>
                       </div>
@@ -478,7 +533,7 @@ if (dayUseBooking) {
                 ))}
                 <button type="submit" className="w-full py-1.5 bg-blue-700 text-white text-xs rounded-lg">Save Changes</button>
                 <div className="border-t border-gray-100 pt-3">
-                  <div className="text-xs font-medium text-gray-600 mb-2">Add New Rate</div>
+                  <div className="text-xs font-medium text-gray-600 mb-2">Add New Rate ({entryPeriod === 'night' ? 'Night Pass' : 'Day Pass'})</div>
                   <div className="space-y-2">
                     <input value={newRate.name} onChange={e => setNewRate(p => ({ ...p, name: e.target.value }))}
                       placeholder="e.g. Beach Access — Adult"
@@ -499,6 +554,9 @@ if (dayUseBooking) {
                         placeholder="₱" className="flex-1 px-2 py-2 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white" />
                       <button type="button" onClick={addNewRate} className="px-3 py-2 bg-green-600 text-white text-xs rounded-lg">+ Add</button>
                     </div>
+                    <div className="text-[11px] text-gray-400">
+                      New rate will be saved as <span className="font-medium">{entryPeriod === 'night' ? '🌙 Night Pass' : '☀️ Day Pass'}</span> — switch the toggle above first to add the other period.
+                    </div>
                   </div>
                 </div>
               </form>
@@ -508,7 +566,7 @@ if (dayUseBooking) {
                   <div key={area}>
                     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{area}</div>
                     <div className="flex flex-wrap gap-2">
-                      {rates.filter(r => r.area === area).map(r => (
+                      {periodRates.filter(r => r.area === area).map(r => (
                         <span key={r.id} className="text-xs bg-gray-50 text-gray-600 px-2 py-1 rounded-lg capitalize">
                           {r.guest_type}: ₱{r.rate}
                         </span>
@@ -575,9 +633,9 @@ if (dayUseBooking) {
             <div className="text-sm font-medium text-gray-700">Guest Info</div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Guest Name</label>
+                <label className="block text-xs text-gray-500 mb-1">Guest Name <span className="text-red-500">*</span></label>
                 <input value={form.guest_name} onChange={e => setForm(p => ({ ...p, guest_name: e.target.value }))}
-                  placeholder="Juan Dela Cruz"
+                  placeholder="Juan Dela Cruz" required
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
               <div>
@@ -666,9 +724,9 @@ if (dayUseBooking) {
               onAmountTenderedChange={a => setPayment(p => ({ ...p, amountTendered: a }))}
             />
 
-            <button type="submit" disabled={loading || totalPax === 0 || !isPaymentValid(payment.method, total, payment.amountTendered) || hasActiveShift === false}
+            <button type="submit" disabled={loading || totalPax === 0 || !form.guest_name.trim() || !isPaymentValid(payment.method, total, payment.amountTendered) || hasActiveShift === false}
               className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg">
-              {hasActiveShift === false ? '🔒 Open a shift first' : loading ? 'Processing...' : `Record Entry & Payment (₱${total.toLocaleString()})`}
+              {hasActiveShift === false ? '🔒 Open a shift first' : !form.guest_name.trim() ? 'Enter guest name to continue' : loading ? 'Processing...' : `Record Entry & Payment (₱${total.toLocaleString()})`}
             </button>
           </div>
         </form>
