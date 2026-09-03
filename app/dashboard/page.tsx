@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { todayInManila } from '@/lib/bookingDates'
 import { useResortSettings } from '@/hooks/useResortSettings'
@@ -141,18 +141,18 @@ export default function DashboardPage() {
     setPendingCheckoutCount(checkoutCount ?? 0)
   }
 
-  // Housekeeping had no badge/notification at all before — this adds one,
-  // matching how HousekeepingPage.tsx itself defines "pending": tasks in
-  // housekeeping_tasks with status='pending' (not yet started; in_progress
-  // tasks are already being handled so they're excluded, same as the
-  // other modules only counting the not-yet-actioned state).
+  // Housekeeping badge/notification: count anything not yet finished, so
+  // the toast keeps reminding staff for as long as the room/cottage
+  // hasn't actually been cleaned — 'pending' (not started) AND
+  // 'in_progress' (started but not marked complete) both count. Only
+  // 'completed' clears it.
   const [pendingHousekeepingCount, setPendingHousekeepingCount] = useState(0)
 
   async function loadPendingHousekeepingCount() {
     const { count } = await supabase
       .from('housekeeping_tasks')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'pending')
+      .in('status', ['pending', 'in_progress'])
     setPendingHousekeepingCount(count ?? 0)
   }
 
@@ -187,6 +187,28 @@ export default function DashboardPage() {
       lowStockCount > 0
     setHasUnprocessedTransactions(hasUnprocessed)
   }, [transactionCounts, pendingBookingsCount, pendingCheckinCount, pendingCheckoutCount, pendingHousekeepingCount, lowStockCount])
+
+  // The pending-transactions toast is fixed at bottom-right and, with many
+  // categories pending at once (e.g. a rush of online bookings), can grow
+  // tall enough to sit on top of buttons underneath it. Staff need a way
+  // to get it out of the way without losing the alert entirely, so it's
+  // collapsible to a small pill instead of an all-or-nothing banner.
+  const [toastMinimized, setToastMinimized] = useState(false)
+  const totalUnprocessedCount =
+    Object.values(transactionCounts).reduce((s, c) => s + c, 0) +
+    pendingBookingsCount + pendingCheckinCount + pendingCheckoutCount +
+    pendingHousekeepingCount + lowStockCount
+
+  // Re-open automatically when the count goes up (a new item came in)
+  // so a minimized toast never silently hides a fresh alert.
+  const prevUnprocessedCountRef = useRef(totalUnprocessedCount)
+  useEffect(() => {
+    if (totalUnprocessedCount > prevUnprocessedCountRef.current) {
+      setToastMinimized(false)
+    }
+    prevUnprocessedCountRef.current = totalUnprocessedCount
+  }, [totalUnprocessedCount])
+
 
   // Shift prompt — shown to cashier/front_desk on login if no active shift
   const [showShiftPrompt, setShowShiftPrompt] = useState(false)
@@ -477,28 +499,61 @@ export default function DashboardPage() {
 
       {/* Toast notification for pending transactions — fixed-position, so
           without print:hidden some browsers repeat it on every printed
-          page, overlapping the report content. */}
+          page, overlapping the report content. Collapsible: with many
+          pending categories at once it can grow tall enough to sit on
+          top of buttons underneath, so staff can minimize it to a small
+          pill instead of it blocking the page. */}
       {hasUnprocessedTransactions && (
-        <div className="fixed bottom-4 right-4 z-40 bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-lg max-w-sm print:hidden">
-          <div className="flex items-start gap-3">
-            <div className="text-lg">⚠️</div>
-            <div>
-              <div className="font-semibold text-amber-900 text-sm">Pending Transactions</div>
-              <div className="text-xs text-amber-700 mt-1">
-                You have unprocessed transactions:
-              </div>
-              <div className="mt-2 space-y-1 text-xs text-amber-700">
-                {transactionCounts.pos > 0 && <div>• POS: {transactionCounts.pos} pending</div>}
-                {pendingCheckinCount > 0 && <div>• Check-in: {pendingCheckinCount} pending</div>}
-                {pendingCheckoutCount > 0 && <div>• Check-out: {pendingCheckoutCount} pending</div>}
-                {pendingHousekeepingCount > 0 && <div>• Housekeeping: {pendingHousekeepingCount} pending</div>}
-                {lowStockCount > 0 && <div>• Inventory: {lowStockCount} low stock</div>}
-                {transactionCounts.dayuse > 0 && <div>• Day/Night Pass: {transactionCounts.dayuse} pending</div>}
-                {pendingBookingsCount > 0 && <div>• Bookings: {pendingBookingsCount} pending</div>}
+        toastMinimized ? (
+          <button
+            onClick={() => setToastMinimized(false)}
+            className="fixed bottom-4 right-4 z-40 bg-amber-50 border border-amber-200 rounded-full pl-3 pr-4 py-2 shadow-lg flex items-center gap-2 print:hidden hover:bg-amber-100"
+          >
+            <span className="text-lg">⚠️</span>
+            <span className="text-xs font-medium text-amber-900">{totalUnprocessedCount} pending</span>
+          </button>
+        ) : (
+          <div className="fixed bottom-4 right-4 z-40 bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-lg max-w-sm print:hidden">
+            <div className="flex items-start gap-3">
+              <div className="text-lg">⚠️</div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-semibold text-amber-900 text-sm">Pending Transactions</div>
+                  <button
+                    onClick={() => setToastMinimized(true)}
+                    aria-label="Minimize"
+                    className="text-amber-500 hover:text-amber-700 flex-shrink-0 -mt-0.5 -mr-1 px-1"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="text-xs text-amber-700 mt-1">
+                  You have unprocessed transactions:
+                </div>
+                <div className="mt-2 space-y-1 text-xs text-amber-700 max-h-40 overflow-y-auto pr-1">
+                  {transactionCounts.pos > 0 && <div>• POS: {transactionCounts.pos} pending</div>}
+                  {pendingCheckinCount > 0 && <div>• Check-in: {pendingCheckinCount} pending</div>}
+                  {pendingCheckoutCount > 0 && <div>• Check-out: {pendingCheckoutCount} pending</div>}
+                  {pendingHousekeepingCount > 0 && <div>• Housekeeping: {pendingHousekeepingCount} pending</div>}
+                  {lowStockCount > 0 && <div>• Inventory: {lowStockCount} low stock</div>}
+                  {transactionCounts.dayuse > 0 && <div>• Day/Night Pass: {transactionCounts.dayuse} pending</div>}
+                  {pendingBookingsCount > 0 && <div>• Bookings: {pendingBookingsCount} pending</div>}
+                  {/* These three transaction_type counts are legacy/orphaned —
+                      nothing in the app currently creates 'checkin', 'checkout',
+                      or 'booking' typed transaction rows (see the notes on
+                      pendingCheckinCount/pendingCheckoutCount/pendingBookingsCount
+                      above for why those replaced them). Shown here anyway so the
+                      total on the minimized pill always matches what's listed —
+                      if these ever show up, it means old/uncleared transaction
+                      rows exist and should be reviewed in Transactions. */}
+                  {transactionCounts.checkin > 0 && <div>• Check-in (legacy record): {transactionCounts.checkin} pending</div>}
+                  {transactionCounts.checkout > 0 && <div>• Check-out (legacy record): {transactionCounts.checkout} pending</div>}
+                  {transactionCounts.booking > 0 && <div>• Booking (legacy record): {transactionCounts.booking} pending</div>}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )
       )}
 
       {/* Shift opening prompt modal */}
