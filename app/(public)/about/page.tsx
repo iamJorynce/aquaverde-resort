@@ -79,9 +79,15 @@ export default async function AboutPage() {
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-8">
             {[
-              'Private Beach', 'Swimming Pool', 'Restaurant', 'Cottages',
-              'Parking', 'Kayaking', 'Beach Bar', 'Free WiFi',
-            ].map((a, i) => (
+  'Free WiFi',
+  'Restaurant',
+  'Room Service',
+  '24/7 Front Desk',
+  'Parking',
+  'Air Conditioning',
+  'Daily Housekeeping',
+  'Non-Smoking Rooms',
+].map((a, i) => (
               <Reveal key={a} delay={i * 40}>
               <div className="text-white/70 text-[14.5px]" style={{ fontFamily: 'Work Sans, sans-serif' }}>
                 {a}
