@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermissions } from './permissions'
+import NumberField from '@/components/NumberField'
 
 const statusColor: Record<string, string> = {
   available:   'bg-green-100 text-green-700',
@@ -11,6 +12,14 @@ const statusColor: Record<string, string> = {
   cleaning:    'bg-yellow-100 text-yellow-700',
   maintenance: 'bg-gray-100 text-gray-700',
 }
+
+// 0=Sunday..6=Saturday (JS/Postgres DOW convention), matches
+// cottages.blocked_weekdays and lib/bookingDates.ts weekdayOf().
+const WEEKDAYS = [
+  { value: 0, label: 'Sun' }, { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' }, { value: 4, label: 'Thu' }, { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+]
 
 // Fallback labels for any legacy row that predates cottage_types_config
 // and hasn't been backfilled with a cottage_type_id yet — should not
@@ -36,9 +45,15 @@ export default function CottagesPage() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<any>(null)
   const [search, setSearch] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
   const [form, setForm] = useState({
     cottage_code: '', name: '', cottage_type_id: '', capacity: 8,
     day_rate: 0, overnight_rate: 0,
+    // Fixed-duration rates (e.g. Function Hall event rentals) — 0 means
+    // "not offered" and is saved as null, same convention as day_rate/
+    // overnight_rate but optional here.
+    rate_4hr: 0, rate_8hr: 0,
+    blocked_weekdays: [] as number[],
   })
 
   // ---- Cottage Type (category) management ----
@@ -83,6 +98,7 @@ export default function CottagesPage() {
       cottage_code: '', name: '',
       cottage_type_id: cottageTypes[0]?.id ?? '',
       capacity: 8, day_rate: 0, overnight_rate: 0,
+      rate_4hr: 0, rate_8hr: 0, blocked_weekdays: [],
     })
     setShowForm(true)
   }
@@ -92,7 +108,9 @@ export default function CottagesPage() {
     setForm({
       cottage_code: c.cottage_code, name: c.name,
       cottage_type_id: c.cottage_type_id ?? cottageTypes[0]?.id ?? '',
-      capacity: c.capacity, day_rate: c.day_rate, overnight_rate: c.overnight_rate ?? 0,
+      capacity: c.capacity, day_rate: c.day_rate ?? 0, overnight_rate: c.overnight_rate ?? 0,
+      rate_4hr: c.rate_4hr ?? 0, rate_8hr: c.rate_8hr ?? 0,
+      blocked_weekdays: c.blocked_weekdays ?? [],
     })
     setShowForm(true)
   }
@@ -101,10 +119,27 @@ export default function CottagesPage() {
     setForm(p => ({ ...p, cottage_type_id }))
   }
 
+  function toggleBlockedWeekday(day: number) {
+    setForm(p => ({
+      ...p,
+      blocked_weekdays: p.blocked_weekdays.includes(day)
+        ? p.blocked_weekdays.filter(d => d !== day)
+        : [...p.blocked_weekdays, day],
+    }))
+  }
+
   async function saveCottage(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.cottage_code || !form.name || form.day_rate <= 0) {
-      showToast('Code, name, and a valid day rate are required.')
+    if (!form.cottage_code || !form.name) {
+      showToast('Code and name are required.')
+      return
+    }
+    // At least ONE rate needs to be set — day_rate isn't mandatory anymore,
+    // since a Function Hall-type cottage may only ever be rented by the
+    // hour (rate_4hr/rate_8hr) and never per day/night.
+    const hasAnyRate = form.day_rate > 0 || form.overnight_rate > 0 || form.rate_4hr > 0 || form.rate_8hr > 0
+    if (!hasAnyRate) {
+      showToast('Please set at least one rate (day, overnight, 4-hour, or 8-hour).')
       return
     }
     if (!form.cottage_type_id) {
@@ -117,8 +152,11 @@ export default function CottagesPage() {
       name: form.name,
       cottage_type_id: form.cottage_type_id,
       capacity: form.capacity,
-      day_rate: form.day_rate,
-      overnight_rate: form.overnight_rate,
+      day_rate: form.day_rate > 0 ? form.day_rate : null,
+      overnight_rate: form.overnight_rate > 0 ? form.overnight_rate : null,
+      rate_4hr: form.rate_4hr > 0 ? form.rate_4hr : null,
+      rate_8hr: form.rate_8hr > 0 ? form.rate_8hr : null,
+      blocked_weekdays: form.blocked_weekdays,
     }
 
     if (editing) {
@@ -137,8 +175,35 @@ export default function CottagesPage() {
   async function deleteCottage(c: any) {
     if (!confirm(`Delete ${c.name}? This cannot be undone.`)) return
     const { error } = await supabase.from('cottages').delete().eq('id', c.id)
-    if (error) { showToast('Error: ' + error.message + ' (may have linked bookings)'); return }
+    if (error) {
+      // FK violation (bookings_cottage_id_fkey) means this cottage has
+      // booking history — hard delete isn't possible without losing that
+      // history, so offer to archive it instead (hides it from booking
+      // screens but keeps all past records intact).
+      if (error.message.includes('foreign key') || error.code === '23503') {
+        if (confirm(`${c.name} has existing bookings and can't be deleted. Archive it instead? (It will disappear from booking screens but past bookings/reports are kept.)`)) {
+          await archiveCottage(c)
+        }
+        return
+      }
+      showToast('Error: ' + error.message)
+      return
+    }
     showToast(`${c.name} deleted.`)
+    load()
+  }
+
+  async function archiveCottage(c: any) {
+    const { error } = await supabase.from('cottages').update({ is_active: false }).eq('id', c.id)
+    if (error) { showToast('Error: ' + error.message); return }
+    showToast(`${c.name} archived.`)
+    load()
+  }
+
+  async function restoreCottage(c: any) {
+    const { error } = await supabase.from('cottages').update({ is_active: true }).eq('id', c.id)
+    if (error) { showToast('Error: ' + error.message); return }
+    showToast(`${c.name} restored.`)
     load()
   }
 
@@ -193,11 +258,13 @@ export default function CottagesPage() {
   }, {})
 
   const q = search.trim().toLowerCase()
-  const filteredCottages = cottages.filter(c => {
-    if (!q) return true
-    return [c.cottage_code, c.name, typeLabelFor(c), c.status]
-      .some(v => v && String(v).toLowerCase().includes(q))
-  })
+  const filteredCottages = cottages
+    .filter(c => showArchived ? c.is_active === false : c.is_active !== false)
+    .filter(c => {
+      if (!q) return true
+      return [c.cottage_code, c.name, typeLabelFor(c), c.status]
+        .some(v => v && String(v).toLowerCase().includes(q))
+    })
 
   return (
     <div>
@@ -273,45 +340,79 @@ export default function CottagesPage() {
       {loading ? (
         <div className="text-center py-12 text-gray-400 text-sm">Loading...</div>
       ) : (
+        <>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-xs text-gray-400">
+            {showArchived ? 'Showing archived cottages only.' : ''}
+          </div>
+          <button onClick={() => setShowArchived(v => !v)}
+            className="text-xs text-gray-500 hover:text-gray-700 underline">
+            {showArchived ? '← Back to active cottages' : 'Show archived cottages'}
+          </button>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {filteredCottages.length === 0 ? (
             <div className="col-span-full text-center py-12 text-gray-400 text-sm">
-              {q ? 'No cottages match your search.' : 'No cottages found.'}
+              {q ? 'No cottages match your search.' : (showArchived ? 'No archived cottages.' : 'No cottages found.')}
             </div>
           ) : filteredCottages.map(c => (
-            <div key={c.id} className="bg-white border border-gray-100 rounded-xl p-3">
+            <div key={c.id} className={`bg-white border rounded-xl p-3 ${c.is_active === false ? 'border-gray-200 opacity-60' : 'border-gray-100'}`}>
               <div className="flex items-start justify-between">
                 <div className="text-lg font-semibold text-gray-800">{c.cottage_code}</div>
-                {canManage && (
+                {canManage && !showArchived && (
                   <button onClick={() => openEdit(c)} className="text-gray-400 hover:text-gray-600 text-xs">Edit</button>
                 )}
               </div>
               <div className="text-xs text-gray-500 mb-1">{typeLabelFor(c)} — {c.capacity} pax</div>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[c.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                {c.status}
-              </span>
+              {c.is_active === false ? (
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">Archived</span>
+              ) : (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[c.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                  {c.status}
+                </span>
+              )}
               <div className="text-xs text-blue-600 font-medium mt-2">
-                ₱{Number(c.day_rate).toLocaleString()}/day <br/>
-                ₱{Number(c.overnight_rate).toLocaleString()}/overnight 
+                {c.day_rate ? `₱${Number(c.day_rate).toLocaleString()}/day` : ''}
+                {c.day_rate && c.overnight_rate ? <br/> : ''}
+                {c.overnight_rate ? `₱${Number(c.overnight_rate).toLocaleString()}/overnight` : ''}
+                {(c.day_rate || c.overnight_rate) && (c.rate_4hr || c.rate_8hr) && <br/>}
+                {c.rate_4hr ? `₱${Number(c.rate_4hr).toLocaleString()}/4hr` : ''}
+                {c.rate_4hr && c.rate_8hr ? ' · ' : ''}
+                {c.rate_8hr ? `₱${Number(c.rate_8hr).toLocaleString()}/8hr` : ''}
+                {!c.day_rate && !c.overnight_rate && !c.rate_4hr && !c.rate_8hr && (
+                  <span className="text-gray-300">No rate set</span>
+                )}
               </div>
-              <select
-                value={c.status}
-                onChange={e => updateStatus(c.id, e.target.value)}
-                disabled={!canManage}
-                className="w-full mt-2 px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                <option value="available">Available</option>
-                <option value="occupied">Occupied</option>
-                <option value="reserved">Reserved</option>
-                <option value="cleaning">Cleaning</option>
-                <option value="maintenance">Maintenance</option>
-              </select>
+              {(c.blocked_weekdays ?? []).length > 0 && (
+                <div className="text-[10px] text-red-500 font-medium mt-1">
+                  Closed: {(c.blocked_weekdays as number[]).map(d => WEEKDAYS.find(w => w.value === d)?.label).join(', ')}
+                </div>
+              )}
+              {!showArchived && (
+                <select
+                  value={c.status}
+                  onChange={e => updateStatus(c.id, e.target.value)}
+                  disabled={!canManage}
+                  className="w-full mt-2 px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <option value="available">Available</option>
+                  <option value="occupied">Occupied</option>
+                  <option value="reserved">Reserved</option>
+                  <option value="cleaning">Cleaning</option>
+                  <option value="maintenance">Maintenance</option>
+                </select>
+              )}
               {canManage && (
-                <button onClick={() => deleteCottage(c)} className="text-xs text-red-400 hover:text-red-600 mt-2">Delete</button>
+                showArchived ? (
+                  <button onClick={() => restoreCottage(c)} className="text-xs text-blue-500 hover:text-blue-700 mt-2">Restore</button>
+                ) : (
+                  <button onClick={() => deleteCottage(c)} className="text-xs text-red-400 hover:text-red-600 mt-2">Delete</button>
+                )
               )}
             </div>
           ))}
         </div>
+        </>
       )}
 
       {showForm && (
@@ -326,7 +427,7 @@ export default function CottagesPage() {
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Capacity</label>
-                <input type="number" value={form.capacity} onChange={e => setForm(p => ({ ...p, capacity: parseInt(e.target.value) || 1 }))}
+                <NumberField value={form.capacity} onChange={n => setForm(p => ({ ...p, capacity: n || 1 }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
             </div>
@@ -352,15 +453,60 @@ export default function CottagesPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Day Rate</label>
-                <input type="number" value={form.day_rate} onChange={e => setForm(p => ({ ...p, day_rate: parseFloat(e.target.value) || 0 }))}
+                <NumberField value={form.day_rate} onChange={n => setForm(p => ({ ...p, day_rate: n }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Overnight Rate</label>
-                <input type="number" value={form.overnight_rate} onChange={e => setForm(p => ({ ...p, overnight_rate: parseFloat(e.target.value) || 0 }))}
+                <NumberField value={form.overnight_rate} onChange={n => setForm(p => ({ ...p, overnight_rate: n }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
             </div>
+
+            {/* Fixed-duration rates — optional, for event-style rentals (e.g.
+                Function Hall) priced by a flat block of hours instead of
+                per-night. Leave at 0 to not offer that duration. */}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Event Rates <span className="text-gray-400 font-normal">(optional — leave 0 if not offered)</span>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-gray-400 mb-1">4-Hour Rate</label>
+                  <NumberField value={form.rate_4hr} onChange={n => setForm(p => ({ ...p, rate_4hr: n }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-gray-400 mb-1">8-Hour Rate</label>
+                  <NumberField value={form.rate_8hr} onChange={n => setForm(p => ({ ...p, rate_8hr: n }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+                </div>
+              </div>
+            </div>
+
+            {/* Blocked weekdays — e.g. a Function Hall closed every Sunday.
+                Booking screens will hide this cottage on those weekdays. */}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Not Available On</label>
+              <div className="flex gap-1.5 flex-wrap">
+                {WEEKDAYS.map(d => (
+                  <button key={d.value} type="button" onClick={() => toggleBlockedWeekday(d.value)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${
+                      form.blocked_weekdays.includes(d.value)
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'bg-white text-gray-600 border-gray-200'
+                    }`}>
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+              {form.blocked_weekdays.length > 0 && (
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Closed every {form.blocked_weekdays.map(d => WEEKDAYS.find(w => w.value === d)?.label).join(', ')}.
+                </p>
+              )}
+            </div>
+
             <div className="flex gap-2 pt-1">
               <button type="submit" className="flex-1 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm rounded-lg">
                 {editing ? 'Save Changes' : 'Add Cottage'}
@@ -385,7 +531,7 @@ export default function CottagesPage() {
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Max Capacity</label>
-              <input type="number" value={typeForm.max_capacity} onChange={e => setTypeForm(p => ({ ...p, max_capacity: parseInt(e.target.value) || 1 }))}
+              <NumberField value={typeForm.max_capacity} onChange={n => setTypeForm(p => ({ ...p, max_capacity: n || 1 }))}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
             </div>
             <div>

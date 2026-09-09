@@ -103,6 +103,7 @@ export default function ReportsPage() {
       supabase.from('booking_addons')
         .select('quantity, unit_price, total_price')
         .eq('category', 'cottage_addon')
+        .eq('voided', false)
         .gte('created_at', `${from}T00:00:00`)
         .lte('created_at', `${to}T23:59:59`),
     ])

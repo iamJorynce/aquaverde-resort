@@ -141,10 +141,13 @@ export async function POST(request: NextRequest) {
     })
   } else {
     // Direct payment transaction
+    // order_id links back to this order so a later void (Remittance) can
+    // find and reverse the inventory_movements deducted above.
     await supabase.from('transactions').insert({
       status: 'completed',
       txn_number: `TXN-${Date.now()}`,
       txn_type: 'pos',
+      order_id: order.id,
       description: `POS Order #${order.order_number}`,
       amount: total,
       payment_method,

@@ -122,7 +122,7 @@ export default function RemittancePage() {
   async function loadShiftTxns(start: string, end: string) {
     const [{ data: txns }, { data: entries }, { data: rates }, { data: cottageAddons }] = await Promise.all([
       supabase.from('transactions')
-        .select('id, amount, payment_method, txn_type, description, created_at, voided, void_reason')
+        .select('id, amount, payment_method, txn_type, description, created_at, voided, void_reason, booking_id, order_id, equipment_rental_id')
         .gte('created_at', start).lte('created_at', end)
         .order('created_at'),
       // Only count day_use_entries where the linked transaction is NOT voided
@@ -131,14 +131,30 @@ export default function RemittancePage() {
         .gte('created_at', start).lte('created_at', end),
       supabase.from('day_use_rates').select('area, guest_type, rate, period').eq('is_active', true),
       supabase.from('booking_addons')
-        .select('name, quantity, unit_price, total_price, created_at')
+        .select('name, quantity, unit_price, total_price, created_at, booking_id')
         .eq('category', 'cottage_addon')
+        .eq('voided', false)
         .gte('created_at', start).lte('created_at', end)
         .order('created_at'),
     ])
 
     setShiftTxns(txns ?? [])
-    setCottageAddonLines(cottageAddons ?? [])
+
+    // A cottage add-on rides on the booking's lump "room" transaction at
+    // check-out — it has no transaction row of its own. If that room
+    // transaction later gets voided (and nothing else non-voided paid for
+    // this booking in this window), the add-on was never actually
+    // collected either, so drop it from the breakdown too. We only
+    // exclude when we can find a voided room/reservation_fee txn for the
+    // booking AND no active one — if we can't find any related txn at
+    // all (e.g. still checked in, not paid yet), leave it as-is rather
+    // than guess.
+    const roomTxnsForFilter = (txns ?? []).filter((t: any) => t.txn_type === 'room' || t.txn_type === 'reservation_fee')
+    const bookingsWithActiveRoomTxn = new Set(roomTxnsForFilter.filter((t: any) => !t.voided).map((t: any) => t.booking_id))
+    const bookingsWithOnlyVoidedRoomTxn = new Set(
+      roomTxnsForFilter.filter((t: any) => t.voided && !bookingsWithActiveRoomTxn.has(t.booking_id)).map((t: any) => t.booking_id)
+    )
+    setCottageAddonLines((cottageAddons ?? []).filter((a: any) => !bookingsWithOnlyVoidedRoomTxn.has(a.booking_id)))
 
     // Build per-area pax breakdown — skip entries where transaction is voided
     const areaMap: Record<string, { area: string; period: string; adults: number; children: number; seniors: number; pwd: number }> = {}
@@ -252,6 +268,28 @@ export default function RemittancePage() {
     return acc
   }, {})
 
+    // Senior/PWD/Athlete-Coach discounts granted during this shift — POS
+    // orders (discount column) plus room/cottage checkouts finalized in
+    // this window (bookings.discount_amount). Purely informational: the
+    // cash figures above already reflect post-discount amounts.
+    const [{ data: discountOrders }, { data: discountBookings }] = await Promise.all([
+      supabase.from('orders').select('id, discount, status')
+        .gte('created_at', activeShift.opened_at).lte('created_at', closedAt).gt('discount', 0),
+      supabase.from('bookings').select('id, discount_amount')
+        .gte('actual_check_out', activeShift.opened_at).lte('actual_check_out', closedAt).gt('discount_amount', 0),
+    ])
+    // Exclude discounts whose payment was voided — this figure is informational
+    // (the cash totals above already reflect post-discount, post-void amounts),
+    // but it should still match what was actually collected this shift.
+    const voidedRoomBookingIds = new Set(
+      shiftTxns.filter(t => t.voided && (t.txn_type === 'room' || t.txn_type === 'reservation_fee')).map(t => t.booking_id)
+    )
+    const totalDiscounts =
+      (discountOrders ?? []).filter((o: any) => o.status !== 'cancelled')
+        .reduce((s: number, o: any) => s + Number(o.discount ?? 0), 0) +
+      (discountBookings ?? []).filter((b: any) => !voidedRoomBookingIds.has(b.id))
+        .reduce((s: number, b: any) => s + Number(b.discount_amount ?? 0), 0)
+
     const remittanceNumber = `REM-${Date.now().toString().slice(-8)}`
     const { error } = await supabase.from('remittances').insert({
       remittance_number: remittanceNumber,
@@ -265,6 +303,7 @@ export default function RemittancePage() {
       bank_transfer_collections: byMethod['bank_transfer'] ?? 0,
       card_collections:         byMethod['credit_card']   ?? 0,
       other_collections:        byMethod['other']         ?? 0,
+      total_discounts: totalDiscounts,
       opening_fund: activeShift.opening_fund,
       actual_cash: 0,
       status: 'draft',
@@ -301,6 +340,107 @@ export default function RemittancePage() {
   }
 
   // ---- Void transaction ----
+  // Voiding a transaction only zeroes out the payment record. Some txn
+  // types paid for a resource tracked elsewhere (equipment stock, POS
+  // ingredient/stock deductions) — those need to be unwound too, or the
+  // resource stays consumed/unavailable even though the money was voided.
+  // These cascades are best-effort: if a step fails we still proceed with
+  // the void (the payment reversal is the priority) but surface a warning
+  // so staff know to fix the linked record manually.
+  async function cascadeVoidSideEffects(txn: any): Promise<string | null> {
+    if (txn.txn_type === 'equipment_rental' && txn.equipment_rental_id) {
+      const { data: rental } = await supabase
+        .from('equipment_rentals').select('id, equipment_id, quantity, status')
+        .eq('id', txn.equipment_rental_id).single()
+      if (rental && rental.status === 'active') {
+        const { data: eq } = await supabase
+          .from('equipment').select('available_qty').eq('id', rental.equipment_id).single()
+        if (eq) {
+          await supabase.from('equipment')
+            .update({ available_qty: eq.available_qty + rental.quantity }).eq('id', rental.equipment_id)
+        }
+        await supabase.from('equipment_rentals').update({ status: 'voided' }).eq('id', rental.id)
+      }
+      return null
+    }
+
+    if (txn.txn_type === 'pos' && txn.order_id) {
+      const { data: order } = await supabase
+        .from('orders').select('id, order_number, status').eq('id', txn.order_id).single()
+      if (order && order.status !== 'cancelled') {
+        const { data: movements } = await supabase
+          .from('inventory_movements').select('item_id, quantity')
+          .eq('reference', order.order_number).eq('movement_type', 'out')
+        if (movements?.length) {
+          await supabase.from('inventory_movements').insert(
+            movements.map((m: any) => ({
+              item_id: m.item_id,
+              movement_type: 'in' as const,
+              quantity: m.quantity,
+              reference: order.order_number,
+              notes: `Reversal — order voided via Remittance`,
+              created_by: profile?.id,
+            }))
+          )
+        }
+        await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id)
+      }
+      return null
+    }
+
+    // Room / reservation-fee checkout payment, voided — treated as the
+    // whole charge being a mistake (confirmed with resort staff), not just
+    // a bad payment record. So the extras that rode on this lump sum
+    // (cottage add-ons, equipment/restaurant charged to room, damage
+    // charges — anything in booking_addons for this booking up to the
+    // moment of this payment) get marked voided too (soft — kept as a
+    // record, just excluded from bills/breakdowns), and the booking's running
+    // totals are rolled back to match — as if none of it happened.
+    // Scoped to addons created at-or-before this transaction's timestamp
+    // so we never touch extras added afterward (e.g. covered by a later,
+    // still-valid payment).
+    if ((txn.txn_type === 'room' || txn.txn_type === 'reservation_fee') && txn.booking_id) {
+      const { data: booking } = await supabase
+        .from('bookings').select('id, extras_total, total_amount, amount_paid')
+        .eq('id', txn.booking_id).single()
+      if (!booking) return null
+
+      const { data: addonsToRemove } = await supabase
+        .from('booking_addons')
+        .select('id, name, quantity, unit_price, total_price')
+        .eq('booking_id', txn.booking_id)
+        .eq('voided', false)
+        .lte('created_at', txn.created_at)
+
+      const removedTotal = (addonsToRemove ?? []).reduce(
+        (s: number, a: any) => s + Number(a.total_price ?? a.unit_price * a.quantity), 0
+      )
+
+      if (addonsToRemove?.length) {
+        await supabase.from('booking_addons').update({
+          voided: true,
+          voided_at: new Date().toISOString(),
+          void_reason: voidModal?.void_reason ?? voidReason.trim(),
+        }).in('id', addonsToRemove.map((a: any) => a.id))
+
+        await logActivity(supabase, {
+          action: 'BOOKING_ADDONS_VOIDED',
+          details: `Booking ${txn.booking_id}: voided ${addonsToRemove.length} extra(s) totaling ₱${removedTotal.toLocaleString()} following void — ${addonsToRemove.map((a: any) => a.name).join(', ')}`,
+        })
+      }
+
+      await supabase.from('bookings').update({
+        extras_total: Math.max(0, Number(booking.extras_total ?? 0) - removedTotal),
+        total_amount: Math.max(0, Number(booking.total_amount ?? 0) - removedTotal),
+        amount_paid: Math.max(0, Number(booking.amount_paid ?? 0) - Number(txn.amount)),
+      }).eq('id', txn.booking_id)
+
+      return null
+    }
+
+    return null
+  }
+
   async function confirmVoid() {
     if (!voidModal || !voidReason.trim()) { showToast('Please enter a reason for voiding.'); return }
     setVoidLoading(true)
@@ -314,15 +454,29 @@ export default function RemittancePage() {
 
     if (error) { showToast('Error: ' + error.message); setVoidLoading(false); return }
 
+    let cascadeWarning: string | null = null
+    try {
+      cascadeWarning = await cascadeVoidSideEffects(voidModal)
+    } catch (e: any) {
+      cascadeWarning = e?.message ?? 'Linked resource could not be auto-restored — please check manually.'
+    }
+
     await logActivity(supabase, {
       action: 'TRANSACTION_VOIDED',
       details: `${voidModal.description} — ₱${Number(voidModal.amount).toLocaleString()} voided. Reason: "${voidReason.trim()}"`,
     })
 
-    showToast(`Transaction voided: ${voidModal.description}`)
+    showToast(cascadeWarning
+      ? `Transaction voided, but: ${cascadeWarning}`
+      : `Transaction voided: ${voidModal.description}`)
     setVoidModal(null)
     setVoidReason('')
     setVoidLoading(false)
+
+    // Refresh so the breakdown (and any restored equipment/stock) reflects
+    // the void immediately instead of waiting for the next full reload.
+    if (activeShift) await loadShiftTxns(activeShift.opened_at, new Date().toISOString())
+    else if (closedShift) await loadShiftTxns(closedShift.opened_at, closedShift.closed_at)
 
     // Reload shift transactions + day use breakdown
     const end = new Date().toISOString()
@@ -416,12 +570,19 @@ export default function RemittancePage() {
     if (!shift) return
 
     // Fetch all transactions for this shift
-    const [{ data: txns }, { data: entries }, { data: rates }, { data: cottageAddons }] = await Promise.all([
+    const [{ data: txns }, { data: voidedRoomTxns }, { data: entries }, { data: rates }, { data: cottageAddons }] = await Promise.all([
       supabase.from('transactions')
         .select('amount, payment_method, txn_type, description, created_at')
         .gte('created_at', shift.opened_at).lte('created_at', shift.closed_at ?? new Date().toISOString())
         .eq('voided', false)
         .order('created_at'),
+      // Voided ones excluded above, so fetch them separately (booking_id
+      // only) to know which bookings' room payment got voided — needed to
+      // filter out cottage add-ons below.
+      supabase.from('transactions')
+        .select('booking_id, txn_type, voided')
+        .in('txn_type', ['room', 'reservation_fee'])
+        .gte('created_at', shift.opened_at).lte('created_at', shift.closed_at ?? new Date().toISOString()),
       supabase.from('day_use_entries')
         .select('area, area_breakdown, num_adults, num_children, num_seniors, num_pwd, period, transactions!day_use_id(voided)')
         .gte('created_at', shift.opened_at).lte('created_at', shift.closed_at ?? new Date().toISOString()),
@@ -432,11 +593,19 @@ export default function RemittancePage() {
       // so they're pulled straight from booking_addons for this itemized
       // breakdown, same idea as the day-use area breakdown above.
       supabase.from('booking_addons')
-        .select('name, quantity, unit_price, total_price, created_at')
+        .select('name, quantity, unit_price, total_price, created_at, booking_id')
         .eq('category', 'cottage_addon')
+        .eq('voided', false)
         .gte('created_at', shift.opened_at).lte('created_at', shift.closed_at ?? new Date().toISOString())
         .order('created_at'),
     ])
+
+    // Same "voided-only room txn" exclusion as loadShiftTxns — see comment there.
+    const bookingsWithActiveRoomTxn = new Set((voidedRoomTxns ?? []).filter((t: any) => !t.voided).map((t: any) => t.booking_id))
+    const bookingsWithOnlyVoidedRoomTxn = new Set(
+      (voidedRoomTxns ?? []).filter((t: any) => t.voided && !bookingsWithActiveRoomTxn.has(t.booking_id)).map((t: any) => t.booking_id)
+    )
+    const cottageAddonsFiltered = (cottageAddons ?? []).filter((a: any) => !bookingsWithOnlyVoidedRoomTxn.has(a.booking_id))
 
     // Build day use pax breakdown with rates and subtotals — skip voided
     const areaMap: Record<string, { area: string; period: string; adults: number; children: number; seniors: number; pwd: number }> = {}
@@ -522,7 +691,7 @@ export default function RemittancePage() {
     ` : ''
 
     // Cottage add-ons breakdown (charged to an already-checked-in room guest)
-    const cottageAddonRows = cottageAddons ?? []
+    const cottageAddonRows = cottageAddonsFiltered
     const cottageAddonTotal = cottageAddonRows.reduce((s: number, a: any) => s + Number(a.total_price ?? a.unit_price * a.quantity), 0)
 
     const cottageAddonSection = cottageAddonRows.length > 0 ? `
@@ -589,6 +758,7 @@ export default function RemittancePage() {
 <div class="divider"></div>
 <div class="section-title">COLLECTIONS SUMMARY</div>
 <div class="row"><span>Gross Collections</span><span>₱${Number(rem.gross_collections).toLocaleString()}</span></div>
+${Number(rem.total_discounts) > 0 ? `<div class="row"><span>Discounts Given (Senior/PWD/Athlete-Coach)</span><span>-₱${Number(rem.total_discounts).toLocaleString()}</span></div>` : ''}
 <div class="row bold"><span>Net Collections</span><span>₱${Number(rem.net_collections).toLocaleString()}</span></div>
 <div class="divider"></div>
 <div class="row"><span>Cash</span><span>₱${Number(rem.cash_collections).toLocaleString()}</span></div>
@@ -735,6 +905,11 @@ ${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>$
 
                 <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
                   <div className="flex justify-between text-gray-500"><span>Gross Collections</span><span>₱{Number(draftRemittance.gross_collections).toLocaleString()}</span></div>
+                  {Number(draftRemittance.total_discounts) > 0 && (
+                    <div className="flex justify-between text-blue-600 pl-3 text-xs">
+                      <span>Discounts Given (Senior/PWD/Athlete-Coach)</span><span>-₱{Number(draftRemittance.total_discounts).toLocaleString()}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-gray-500 pl-3 text-xs">
                     <span>Cash</span><span>₱{Number(draftRemittance.cash_collections).toLocaleString()}</span>
                   </div>
@@ -1050,6 +1225,9 @@ ${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>$
                   </div>
                 </div>
               </div>
+              {Number(rem.total_discounts) > 0 && (
+                <div className="mt-2 text-xs text-blue-600">Discounts given: ₱{Number(rem.total_discounts).toLocaleString()}</div>
+              )}
 
               {rem.status === 'rejected' && rem.rejection_remarks && (
                 <div className="mt-2 text-xs text-red-600 bg-red-50 rounded p-2">Rejected: {rem.rejection_remarks}</div>
@@ -1086,6 +1264,9 @@ ${rem.approved_by_name ? `<div class="row small"><span>Approved by</span><span>$
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 text-sm">
                 <div className="bg-gray-50 rounded p-2"><div className="text-xs text-gray-400">Gross</div><div className="font-medium">₱{Number(rem.gross_collections).toLocaleString()}</div></div>
+                {Number(rem.total_discounts) > 0 && (
+                  <div className="bg-gray-50 rounded p-2"><div className="text-xs text-gray-400">Discounts</div><div className="font-medium text-blue-600">-₱{Number(rem.total_discounts).toLocaleString()}</div></div>
+                )}
                 <div className="bg-gray-50 rounded p-2"><div className="text-xs text-gray-400">Net</div><div className="font-medium">₱{Number(rem.net_collections).toLocaleString()}</div></div>
                 <div className="bg-gray-50 rounded p-2"><div className="text-xs text-gray-400">Expected Cash</div><div className="font-medium">₱{Number(rem.expected_cash).toLocaleString()}</div></div>
                 <div className={`rounded p-2 ${Number(rem.variance) === 0 ? 'bg-green-50' : 'bg-red-50'}`}>

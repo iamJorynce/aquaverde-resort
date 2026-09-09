@@ -35,22 +35,22 @@ const NAV = [
   { id: 'bookings',     icon: '📅', label: 'Bookings' },
   { id: 'calendar',     icon: '🗓️', label: 'Calendar' },
   { id: 'walkin',       icon: '🚶', label: 'Walk-in' },
-  { id: 'checkinout',   icon: '🚪', label: 'Check-in/Out' },
-  { id: 'rooms',        icon: '🏠', label: 'Rooms' },
-  /*{ id: 'cottages',     icon: '⛺', label: 'Cottages' },*/
- /* { id: 'dayuse',       icon: '☀️', label: 'Day/Night Pass' },*/
-  { id: 'pos',          icon: '🧾', label: 'POS / Cashier' },
+  { id: 'checkinout',   icon: '🛎️', label: 'Check-in/Out' },
+  { id: 'rooms',        icon: '🛏️', label: 'Rooms' },
+  { id: 'equipment',    icon: '🧴', label: 'Toiletries' },
+  { id: 'cottages',     icon: '🏛️', label: 'Function Hall' },
+  /* { id: 'dayuse',    icon: '☀️', label: 'Day/Night Pass' }, */
+  { id: 'pos',          icon: '💳', label: 'POS / Cashier' },
   { id: 'restaurant',   icon: '🍽️', label: 'Restaurant' },
-  { id: 'housekeeping', icon: '✨', label: 'Housekeeping' },
+  { id: 'housekeeping', icon: '🧹', label: 'Housekeeping' },
   { id: 'maintenance',  icon: '🔧', label: 'Maintenance' },
   { id: 'inventory',    icon: '📦', label: 'Inventory' },
-  /*{ id: 'equipment',    icon: '🛶', label: 'Equipment' },*/
   { id: 'guests',       icon: '👥', label: 'Guests' },
   { id: 'staff',        icon: '👤', label: 'Staff' },
-  { id: 'billing',      icon: '📄', label: 'Billing' },
+  { id: 'billing',      icon: '💰', label: 'Billing' },
   { id: 'reports',      icon: '📈', label: 'Reports' },
   { id: 'settings',     icon: '⚙️', label: 'Settings' },
-  { id: 'remittance',  icon: '🧾', label: 'Remittance' },
+  { id: 'remittance',   icon: '💵', label: 'Remittance' },
 ]
 
 interface Stats {
@@ -83,6 +83,7 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [navSearch, setNavSearch] = useState('')
 
   // ✨ NEW: Transaction badge state
   const [transactionCounts, setTransactionCounts] = useState<TransactionCounts>({
@@ -215,6 +216,7 @@ export default function DashboardPage() {
   const [shiftOpeningFund, setShiftOpeningFund] = useState(0)
   const [shiftType, setShiftType] = useState('AM')
   const [openingShift, setOpeningShift] = useState(false)
+  const [shiftError, setShiftError] = useState<string | null>(null)
 
   // ✨ NEW: Load transaction counts
   async function loadTransactionCounts() {
@@ -478,15 +480,26 @@ export default function DashboardPage() {
   async function openShift() {
     if (!profile) return
     setOpeningShift(true)
+    setShiftError(null)
+    // Re-fetch the profile in case full_name wasn't populated yet when the
+    // dashboard first loaded (race condition with on_auth_user_created trigger
+    // for newly-created staff accounts).
+    const { data: freshProfile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', profile.id)
+      .single()
+    const cashierName = freshProfile?.full_name?.trim() || profile.full_name?.trim() || 'Staff'
     const shiftNumber = `SHF-${Date.now().toString().slice(-8)}`
     const { error } = await supabase.from('shifts').insert({
       shift_number: shiftNumber,
       cashier_id: profile.id,
-      cashier_name: profile.full_name,
+      cashier_name: cashierName,
       shift_type: shiftType,
       opening_fund: shiftOpeningFund,
     })
     if (error) {
+      setShiftError('Failed to open shift: ' + error.message)
       setOpeningShift(false)
       return
     }
@@ -605,6 +618,11 @@ export default function DashboardPage() {
                 Skip
               </button>
             </div>
+            {shiftError && (
+              <div className="mt-3 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                {shiftError}
+              </div>
+            )}
 
             <div className="text-xs text-gray-400 text-center mt-3">
               You can also open a shift later from the Remittance module.
@@ -639,9 +657,35 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Module search */}
+        <div className="px-3 pt-3 pb-1">
+          <div className="relative">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+            <input
+              type="text"
+              value={navSearch}
+              onChange={(e) => setNavSearch(e.target.value)}
+              placeholder="Search modules..."
+              className="w-full pl-8 pr-7 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 text-gray-700 placeholder:text-gray-400"
+            />
+            {navSearch && (
+              <button
+                onClick={() => setNavSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                aria-label="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-2">
-          {NAV.filter(n => canAccess(profile?.role, n.id)).map(n => {
+          {NAV
+            .filter(n => canAccess(profile?.role, n.id))
+            .filter(n => n.label.toLowerCase().includes(navSearch.trim().toLowerCase()))
+            .map(n => {
             const count = getModuleBadgeCount(n.id)
             const hasTransactions = count > 0
             return (
@@ -670,6 +714,9 @@ export default function DashboardPage() {
               </button>
             )
           })}
+          {navSearch.trim() && NAV.filter(n => canAccess(profile?.role, n.id)).filter(n => n.label.toLowerCase().includes(navSearch.trim().toLowerCase())).length === 0 && (
+            <div className="px-4 py-3 text-xs text-gray-400 text-center">No modules found</div>
+          )}
         </nav>
 
         {/* Profile */}
@@ -716,11 +763,11 @@ export default function DashboardPage() {
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                     {[
                       { icon:'🚶', label:'Walk-in', page:'walkin' },
-                      { icon:'📅', label:'New Booking', page:'bookings' },
-                      { icon:'🚪', label:'Check In', page:'checkinout' },
-                      { icon:'🏠', label:'Rooms', page:'rooms' },
-                      { icon:'🧾', label:'Open POS', page:'pos' },
-                      { icon:'✨', label:'Housekeeping', page:'housekeeping' },
+{ icon:'📅', label:'New Booking', page:'bookings' },
+{ icon:'🛎️', label:'Check In', page:'checkinout' },
+{ icon:'🛏️', label:'Rooms', page:'rooms' },
+{ icon:'💳', label:'Open POS', page:'pos' },
+{ icon:'🧹', label:'Housekeeping', page:'housekeeping' },
                     ].filter(a => canAccess(profile?.role, a.page)).map(a => {
                       const count = getModuleBadgeCount(a.page)
                       return (

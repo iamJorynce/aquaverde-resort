@@ -5,11 +5,21 @@ import { createClient } from '@/lib/supabase/client'
 import { printReceipt } from './receipt'
 import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import { logActivity } from './activityLog'
+import NumberField from '@/components/NumberField'
 import { usePermissions } from './permissions'
 import { useResortSettings } from '@/hooks/useResortSettings'
 
 interface MenuItem { id: string; name: string; price: number; category_id: string; is_available: boolean; direct_inventory_item_id: string | null; menu_categories: { name: string; id: string } | null }
 interface CartItem  { id: string; name: string; price: number; qty: number }
+
+type DiscountType = 'none' | 'senior' | 'pwd' | 'athlete'
+// 20% off, matching RA 9994 (Senior Citizen), RA 10754 (PWD) and RA 10699
+// (National Athletes & Coaches).
+const POS_DISCOUNT_LABELS: Record<Exclude<DiscountType, 'none'>, string> = {
+  senior: 'Senior Citizen Discount (20%)',
+  pwd: 'PWD Discount (20%)',
+  athlete: 'Athlete/Coach Discount (20%)',
+}
 interface InventoryItemLite { id: string; name: string; current_stock: number; unit: string }
 interface RecipeRow { id: string; menu_item_id: string; inventory_item_id: string; quantity_per_unit: number; inventory_items: { name: string; current_stock: number; unit: string } | null }
 interface DirectStockInfo { inventory_item_id: string; name: string; current_stock: number; unit: string }
@@ -34,6 +44,7 @@ export default function POSPage() {
   // Payment calculator state
   const [paymentMethod, setPaymentMethod]   = useState('cash')
   const [amountTendered, setAmountTendered] = useState(0)
+  const [discountType, setDiscountType]     = useState<DiscountType>('none')
 
   // Admin: menu management
   const [showMenuManager, setShowMenuManager] = useState(false)
@@ -111,9 +122,32 @@ export default function POSPage() {
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
+  // Current available stock for a menu item, or null if it isn't linked to
+  // inventory at all (unlimited — e.g. no direct link and no recipe rows).
+  // Direct-linked items (merchandise, 1:1) use current_stock as-is.
+  // Recipe-linked items are capped by whichever ingredient runs out first.
+  function getItemStock(item: MenuItem): number | null {
+    const direct = directStock[item.id]
+    if (direct) return Math.floor(direct.current_stock)
+
+    const ingredients = recipes[item.id] ?? []
+    if (ingredients.length === 0) return null
+
+    let min = Infinity
+    for (const ing of ingredients) {
+      const stock = ing.inventory_items?.current_stock ?? 0
+      const perUnit = ing.quantity_per_unit || 1
+      min = Math.min(min, Math.floor(stock / perUnit))
+    }
+    return isFinite(min) ? min : null
+  }
+
   function addToCart(item: MenuItem) {
+    const stock = getItemStock(item)
     setCart(prev => {
       const existing = prev.find(c => c.id === item.id)
+      const currentQty = existing?.qty ?? 0
+      if (stock !== null && currentQty + 1 > stock) return prev // capped — no more stock
       return existing
         ? prev.map(c => c.id === item.id ? { ...c, qty: c.qty + 1 } : c)
         : [...prev, { id: item.id, name: item.name, price: item.price, qty: 1 }]
@@ -121,11 +155,16 @@ export default function POSPage() {
   }
 
   function updateQty(id: string, qty: number) {
-    if (qty <= 0) setCart(p => p.filter(c => c.id !== id))
-    else setCart(p => p.map(c => c.id === id ? { ...c, qty } : c))
+    if (qty <= 0) { setCart(p => p.filter(c => c.id !== id)); return }
+    const item = items.find(i => i.id === id)
+    const stock = item ? getItemStock(item) : null
+    if (stock !== null && qty > stock) return // capped — no more stock
+    setCart(p => p.map(c => c.id === id ? { ...c, qty } : c))
   }
 
   const subtotal = cart.reduce((s, c) => s + c.price * c.qty, 0)
+  const discountAmount = discountType !== 'none' ? Math.round(subtotal * 0.20) : 0
+  const netTotal = subtotal - discountAmount
 
   // For cart items that have a recipe (menu_item_ingredients) and/or a direct
   // stock link (direct_inventory_item_id — merchandise, always 1:1), compute
@@ -165,7 +204,7 @@ export default function POSPage() {
 
     // For direct payment (not room charge), validate cash amount
     if (!chargeToBooking) {
-      const paymentError = paymentValidationMessage(paymentMethod, subtotal, amountTendered)
+      const paymentError = paymentValidationMessage(paymentMethod, netTotal, amountTendered)
       if (paymentError) { showToast(paymentError); return }
     }
 
@@ -194,10 +233,13 @@ export default function POSPage() {
         booking_id: chargeToBooking || null,
         order_type: chargeToBooking ? 'room_service' : 'dine_in',
         status: 'served',
-        total: subtotal,
+        subtotal,
+        discount: discountAmount,
+        total: netTotal,
         payment_method: chargeToBooking ? null : paymentMethod,
         paid_at: chargeToBooking ? null : new Date().toISOString(),
         guest_name: guestName,
+        notes: discountType !== 'none' ? POS_DISCOUNT_LABELS[discountType] : null,
       }).select().single()
 
       if (orderError) throw orderError
@@ -242,8 +284,8 @@ export default function POSPage() {
           .select('extras_total, total_amount').eq('id', chargeToBooking).single()
         if (bk) {
           await supabase.from('bookings').update({
-            extras_total: Number(bk.extras_total ?? 0) + subtotal,
-            total_amount: Number(bk.total_amount ?? 0) + subtotal,
+            extras_total: Number(bk.extras_total ?? 0) + netTotal,
+            total_amount: Number(bk.total_amount ?? 0) + netTotal,
           }).eq('id', chargeToBooking)
         }
       } else {
@@ -252,14 +294,14 @@ export default function POSPage() {
           txn_number: `TXN-${Date.now()}`,
           txn_type: 'pos',
           description: `POS Order ${orderNumber}${guestName !== 'Walk-in Guest' ? ` — ${guestName}` : ''}`,
-          amount: subtotal,
+          amount: netTotal,
           payment_method: paymentMethod,
         })
       }
 
       await logActivity(supabase, {
         action: 'POS_PAYMENT',
-        details: `${orderNumber} — ${guestName}, ₱${subtotal.toLocaleString()} ${chargeToBooking ? 'room charge' : paymentMethod}`,
+        details: `${orderNumber} — ${guestName}, ₱${netTotal.toLocaleString()} ${chargeToBooking ? 'room charge' : paymentMethod}`,
       })
 
       printReceipt({
@@ -270,17 +312,20 @@ export default function POSPage() {
         date: new Date().toLocaleDateString('en-PH', { dateStyle: 'medium' }),
         guestName,
         lineItems: cart.map(c => ({ label: c.name, qty: c.qty, amount: c.price * c.qty })),
-        total: subtotal,
-        amountPaid: subtotal,
+        total: netTotal,
+        discount: discountAmount || undefined,
+        discountReason: discountType !== 'none' ? POS_DISCOUNT_LABELS[discountType] : undefined,
+        amountPaid: netTotal,
         paymentMethod: chargeToBooking ? 'room_charge' : paymentMethod,
         footerNote: chargeToBooking ? 'Charged to room — settled at check-out.' : 'Thank you for your order!',
       })
 
-      showToast(`Order ${orderNumber} processed! ₱${subtotal.toLocaleString()}`)
+      showToast(`Order ${orderNumber} processed! ₱${netTotal.toLocaleString()}`)
       setCart([])
       setChargeToBooking('')
       setWalkInGuestName('')
       setAmountTendered(0)
+      setDiscountType('none')
       load() // refresh inventory stock levels shown in the recipe editor
     } catch (err: any) {
       showToast('Error: ' + err.message)
@@ -474,7 +519,7 @@ export default function POSPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Price</label>
-                  <input type="number" value={menuForm.price} onChange={e => setMenuForm(p => ({ ...p, price: parseFloat(e.target.value) || 0 }))}
+                  <NumberField value={menuForm.price} onChange={n => setMenuForm(p => ({ ...p, price: n }))}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
                 </div>
                 <div>
@@ -576,8 +621,8 @@ export default function POSPage() {
                       <option key={i.id} value={i.id}>{i.name} ({i.current_stock} {i.unit} left)</option>
                     ))}
                   </select>
-                  <input type="number" min={0} step="any" value={ingredientForm.quantity_per_unit}
-                    onChange={e => setIngredientForm(p => ({ ...p, quantity_per_unit: parseFloat(e.target.value) || 0 }))}
+                  <NumberField min={0} value={ingredientForm.quantity_per_unit}
+                    onChange={n => setIngredientForm(p => ({ ...p, quantity_per_unit: n }))}
                     placeholder="Qty"
                     className="w-20 px-2 py-2 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white" />
                   <button onClick={addIngredient} disabled={savingIngredient}
@@ -676,13 +721,35 @@ export default function POSPage() {
               ))}
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {visibleItems.map(item => (
-                <button key={item.id} onClick={() => addToCart(item)}
-                  className="bg-white border border-gray-100 hover:border-blue-200 hover:bg-blue-50 rounded-xl p-3 text-left transition-colors">
-                  <div className="text-sm font-medium text-gray-700">{item.name}</div>
-                  <div className="text-xs text-blue-600 font-medium mt-1">₱{Number(item.price).toLocaleString()}</div>
-                </button>
-              ))}
+              {visibleItems.map(item => {
+                const stock = getItemStock(item)
+                const inCartQty = cart.find(c => c.id === item.id)?.qty ?? 0
+                const atMax = stock !== null && inCartQty >= stock
+                const soldOut = stock !== null && stock <= 0
+                return (
+                  <button key={item.id} onClick={() => !atMax && addToCart(item)}
+                    disabled={atMax}
+                    className={`bg-white border rounded-xl p-3 text-left transition-colors ${
+                      atMax
+                        ? 'border-gray-100 opacity-50 cursor-not-allowed'
+                        : 'border-gray-100 hover:border-blue-200 hover:bg-blue-50'
+                    }`}>
+                    <div className="text-sm font-medium text-gray-700">{item.name}</div>
+                    <div className="text-xs text-blue-600 font-medium mt-1">₱{Number(item.price).toLocaleString()}</div>
+                    {stock !== null && (
+                      <div className={`mt-1.5 inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                        soldOut
+                          ? 'bg-red-100 text-red-600'
+                          : stock <= 5
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}>
+                        {soldOut ? 'Sold out' : `Stock: ${stock}`}
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
@@ -704,25 +771,62 @@ export default function POSPage() {
                 <div className="text-center py-6 text-gray-300 text-xs">No items in cart.</div>
               ) : (
                 <div className="space-y-1.5 mb-3 max-h-40 overflow-y-auto">
-                  {cart.map(c => (
-                    <div key={c.id} className="flex items-center gap-2 text-sm">
-                      <span className="flex-1 text-gray-700 text-xs">{c.name}</span>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => updateQty(c.id, c.qty - 1)}
-                          className="w-5 h-5 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 text-xs">−</button>
-                        <span className="text-xs w-4 text-center">{c.qty}</span>
-                        <button onClick={() => updateQty(c.id, c.qty + 1)}
-                          className="w-5 h-5 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 text-xs">+</button>
+                  {cart.map(c => {
+                    const cartMenuItem = items.find(i => i.id === c.id)
+                    const stock = cartMenuItem ? getItemStock(cartMenuItem) : null
+                    const cartAtMax = stock !== null && c.qty >= stock
+                    return (
+                      <div key={c.id} className="flex items-center gap-2 text-sm">
+                        <span className="flex-1 text-gray-700 text-xs">{c.name}</span>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => updateQty(c.id, c.qty - 1)}
+                            className="w-5 h-5 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 text-xs">−</button>
+                          <span className="text-xs w-4 text-center">{c.qty}</span>
+                          <button onClick={() => updateQty(c.id, c.qty + 1)} disabled={cartAtMax}
+                            className="w-5 h-5 bg-gray-100 hover:bg-gray-200 disabled:opacity-30 rounded text-gray-600 text-xs">+</button>
+                        </div>
+                        <span className="text-xs text-gray-500 w-16 text-right">₱{(c.price * c.qty).toLocaleString()}</span>
+                        {cartAtMax && <span className="text-[10px] text-amber-500 font-medium w-full text-right -mt-1">max stock</span>}
                       </div>
-                      <span className="text-xs text-gray-500 w-16 text-right">₱{(c.price * c.qty).toLocaleString()}</span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 
-              <div className="flex justify-between text-sm font-medium text-gray-700 border-t border-gray-100 pt-2 mb-3">
-                <span>Total</span>
-                <span>₱{subtotal.toLocaleString()}</span>
+              {cart.length > 0 && (
+                <div className="mb-3">
+                  <label className="block text-xs text-gray-500 mb-1">Discount (Senior / PWD / Athlete-Coach — 20%)</label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {([
+                      ['none', 'None'],
+                      ['senior', 'Senior'],
+                      ['pwd', 'PWD'],
+                      ['athlete', 'Athlete/Coach'],
+                    ] as const).map(([val, label]) => (
+                      <button key={val} type="button" onClick={() => setDiscountType(val)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${discountType === val ? 'bg-blue-700 text-white border-blue-700' : 'bg-white text-gray-600 border-gray-200'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t border-gray-100 pt-2 mb-3 space-y-1">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Subtotal</span>
+                  <span>₱{subtotal.toLocaleString()}</span>
+                </div>
+                {discountType !== 'none' && (
+                  <div className="flex justify-between text-sm text-blue-600">
+                    <span>{POS_DISCOUNT_LABELS[discountType]}</span>
+                    <span>-₱{discountAmount.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-medium text-gray-700">
+                  <span>Total</span>
+                  <span>₱{netTotal.toLocaleString()}</span>
+                </div>
               </div>
 
               {/* Charge to room OR direct payment */}
@@ -744,7 +848,7 @@ export default function POSPage() {
               {/* Payment calculator — only for direct payment */}
               {!chargeToBooking && (
                 <PaymentCalculator
-                  totalDue={subtotal}
+                  totalDue={netTotal}
                   method={paymentMethod}
                   onMethodChange={setPaymentMethod}
                   amountTendered={amountTendered}
@@ -759,9 +863,9 @@ export default function POSPage() {
               )}
 
               <button onClick={processPayment}
-                disabled={loading || cart.length === 0 || (!chargeToBooking && !isPaymentValid(paymentMethod, subtotal, amountTendered)) || hasActiveShift === false}
+                disabled={loading || cart.length === 0 || (!chargeToBooking && !isPaymentValid(paymentMethod, netTotal, amountTendered)) || hasActiveShift === false}
                 className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm rounded-lg mt-3">
-                {hasActiveShift === false ? '🔒 Open a shift first' : loading ? 'Processing...' : chargeToBooking ? 'Charge to Room' : `Process Payment ₱${subtotal.toLocaleString()}`}
+                {hasActiveShift === false ? '🔒 Open a shift first' : loading ? 'Processing...' : chargeToBooking ? 'Charge to Room' : `Process Payment ₱${netTotal.toLocaleString()}`}
               </button>
             </div>
           </div>

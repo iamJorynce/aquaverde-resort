@@ -206,6 +206,9 @@ export type Database = {
           quantity: number | null
           total_price: number | null
           unit_price: number
+          voided: boolean
+          voided_at: string | null
+          void_reason: string | null
         }
         Insert: {
           booking_id: string
@@ -216,6 +219,9 @@ export type Database = {
           quantity?: number | null
           total_price?: number | null
           unit_price: number
+          voided?: boolean
+          voided_at?: string | null
+          void_reason?: string | null
         }
         Update: {
           booking_id?: string
@@ -226,6 +232,9 @@ export type Database = {
           quantity?: number | null
           total_price?: number | null
           unit_price?: number
+          voided?: boolean
+          voided_at?: string | null
+          void_reason?: string | null
         }
         Relationships: [
           {
@@ -258,6 +267,10 @@ export type Database = {
           deposit_returned: boolean | null
           discount_amount: number | null
           discount_reason: string | null
+          duration_type: string
+          expected_check_out_at: string | null
+          extended_hours: number
+          extension_fee: number
           extras_total: number | null
           group_number: string | null
           guest_id: string
@@ -306,6 +319,10 @@ export type Database = {
           deposit_returned?: boolean | null
           discount_amount?: number | null
           discount_reason?: string | null
+          duration_type?: string
+          expected_check_out_at?: string | null
+          extended_hours?: number
+          extension_fee?: number
           extras_total?: number | null
           group_number?: string | null
           guest_id: string
@@ -354,6 +371,10 @@ export type Database = {
           deposit_returned?: boolean | null
           discount_amount?: number | null
           discount_reason?: string | null
+          duration_type?: string
+          expected_check_out_at?: string | null
+          extended_hours?: number
+          extension_fee?: number
           extras_total?: number | null
           group_number?: string | null
           guest_id?: string
@@ -1886,6 +1907,7 @@ export type Database = {
           base_rate: number
           created_at: string | null
           description: string | null
+          extend_hourly_rate: number | null
           extra_person_rate: number | null
           holiday_rate: number | null
           id: string
@@ -1893,6 +1915,9 @@ export type Database = {
           is_active: boolean | null
           max_capacity: number
           name: string
+          rate_12hr: number | null
+          rate_3hr: number | null
+          rate_6hr: number | null
           type: string
           weekend_rate: number | null
         }
@@ -1901,6 +1926,7 @@ export type Database = {
           base_rate: number
           created_at?: string | null
           description?: string | null
+          extend_hourly_rate?: number | null
           extra_person_rate?: number | null
           holiday_rate?: number | null
           id?: string
@@ -1908,6 +1934,9 @@ export type Database = {
           is_active?: boolean | null
           max_capacity?: number
           name: string
+          rate_12hr?: number | null
+          rate_3hr?: number | null
+          rate_6hr?: number | null
           type: string
           weekend_rate?: number | null
         }
@@ -1916,6 +1945,7 @@ export type Database = {
           base_rate?: number
           created_at?: string | null
           description?: string | null
+          extend_hourly_rate?: number | null
           extra_person_rate?: number | null
           holiday_rate?: number | null
           id?: string
@@ -1923,6 +1953,9 @@ export type Database = {
           is_active?: boolean | null
           max_capacity?: number
           name?: string
+          rate_12hr?: number | null
+          rate_3hr?: number | null
+          rate_6hr?: number | null
           type?: string
           weekend_rate?: number | null
         }
@@ -2172,6 +2205,7 @@ export type Database = {
           created_at: string | null
           day_use_id: string | null
           description: string | null
+          equipment_rental_id: string | null
           guest_id: string | null
           id: string
           order_id: string | null
@@ -2195,6 +2229,7 @@ export type Database = {
           created_at?: string | null
           day_use_id?: string | null
           description?: string | null
+          equipment_rental_id?: string | null
           guest_id?: string | null
           id?: string
           order_id?: string | null
@@ -2218,6 +2253,7 @@ export type Database = {
           created_at?: string | null
           day_use_id?: string | null
           description?: string | null
+          equipment_rental_id?: string | null
           guest_id?: string | null
           id?: string
           order_id?: string | null
@@ -2267,6 +2303,13 @@ export type Database = {
             columns: ["day_use_id"]
             isOneToOne: false
             referencedRelation: "day_use_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_equipment_rental_id_fkey"
+            columns: ["equipment_rental_id"]
+            isOneToOne: false
+            referencedRelation: "equipment_rentals"
             referencedColumns: ["id"]
           },
           {

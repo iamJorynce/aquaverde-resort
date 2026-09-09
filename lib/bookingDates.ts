@@ -58,6 +58,28 @@ export function calendarDateToUTC(date: string): number {
   return Date.UTC(year, month - 1, day)
 }
 
+// Day of week for a calendar date, 0=Sunday..6=Saturday — used to check a
+// cottage's blocked_weekdays (e.g. a Function Hall closed every Sunday)
+// against a chosen check-in date.
+export function weekdayOf(date: string): number {
+  return new Date(calendarDateToUTC(date)).getUTCDay()
+}
+
+// Like addDaysInManila, but relative to a given calendar date string
+// instead of "now" — needed for advance/online bookings, where check-in
+// can be any future date, not necessarily today. Using addDaysInManila(1)
+// there would set check-out to "tomorrow from right now" regardless of
+// what check-in date was actually picked, silently producing a check-out
+// date BEFORE check-in whenever check-in is more than a day out.
+export function addDaysToDate(date: string, days: number): string {
+  const utcMs = calendarDateToUTC(date) + days * 86400000
+  const d = new Date(utcMs)
+  const year = d.getUTCFullYear()
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function nightsBetween(checkIn: string, checkOut: string): number {
   const start = calendarDateToUTC(checkIn)
   const end = calendarDateToUTC(checkOut)

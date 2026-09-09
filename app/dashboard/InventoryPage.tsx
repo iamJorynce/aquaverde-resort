@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermissions } from './permissions'
+import NumberField from '@/components/NumberField'
 
 export default function InventoryPage() {
   const supabase = createClient()
@@ -221,10 +222,9 @@ export default function InventoryPage() {
               {stockType === 'in' ? 'Stock In' : 'Stock Out'} — {stockModal.name}
             </div>
             <div className="text-xs text-gray-500 mb-2">Current stock: {stockModal.current_stock} {stockModal.unit}</div>
-            <input
-              type="number"
+            <NumberField
               value={stockAmount}
-              onChange={e => setStockAmount(parseFloat(e.target.value) || 0)}
+              onChange={n => setStockAmount(n)}
               placeholder={`Quantity (${stockModal.unit})`}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white mb-3"
             />
@@ -272,12 +272,12 @@ export default function InventoryPage() {
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Initial Stock</label>
-                <input type="number" value={itemForm.current_stock} onChange={e => setItemForm(p => ({ ...p, current_stock: parseFloat(e.target.value) || 0 }))}
+                <NumberField value={itemForm.current_stock} onChange={n => setItemForm(p => ({ ...p, current_stock: n }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Reorder Lvl</label>
-                <input type="number" value={itemForm.reorder_level} onChange={e => setItemForm(p => ({ ...p, reorder_level: parseFloat(e.target.value) || 0 }))}
+                <NumberField value={itemForm.reorder_level} onChange={n => setItemForm(p => ({ ...p, reorder_level: n }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
             </div>

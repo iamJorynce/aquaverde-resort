@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { usePermissions } from './permissions'
 import PaymentCalculator, { isPaymentValid } from './PaymentCalculator'
 import { logActivity } from './activityLog'
+import NumberField from '@/components/NumberField'
 
 export default function EquipmentPage() {
 
@@ -120,7 +121,7 @@ async function loadDamageLog() {
       : rentForm.renterType === 'guest' ? guests.find(g => g.id === rentForm.guest_id)?.full_name
       : (selectedBooking?.guests as any)?.full_name
 
-    const { error: rentalError } = await supabase.from('equipment_rentals').insert({
+    const { data: rentalRow, error: rentalError } = await supabase.from('equipment_rentals').insert({
       rental_number: `RNT-${Date.now()}`,
       equipment_id: rentModal.id,
       booking_id: rentForm.renterType === 'booking' ? rentForm.booking_id : null,
@@ -132,7 +133,8 @@ async function loadDamageLog() {
       total_amount: total,
       rental_start: new Date().toISOString(),
       deposit_paid: (rentModal.deposit_amount ?? 0) * rentForm.quantity,
-    })
+      status: 'active',
+    }).select().single()
 
     if (rentalError) { showToast('Error: ' + rentalError.message); return }
 
@@ -166,6 +168,7 @@ async function loadDamageLog() {
             guest_id: guestId ?? null,
             booking_id: rentForm.booking_id,
             txn_type: 'equipment_rental',
+            equipment_rental_id: rentalRow?.id ?? null,
             description: `Equipment rental — ${rentModal.name} × ${rentForm.quantity} (${renterName ?? 'Guest'})`,
             amount: total,
             payment_method: rentPayment.method,
@@ -182,6 +185,7 @@ async function loadDamageLog() {
           guest_id: guestId ?? null,
           booking_id: null,
           txn_type: 'equipment_rental',
+          equipment_rental_id: rentalRow?.id ?? null,
           description: `Equipment rental — ${rentModal.name} × ${rentForm.quantity} (${renterName ?? 'Walk-in'})`,
           amount: total,
           payment_method: rentPayment.method,
@@ -734,16 +738,16 @@ async function loadDamageLog() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Quantity</label>
-                <input type="number" min={1} max={rentModal.available_qty} value={rentForm.quantity}
-                  onChange={e => setRentForm(p => ({ ...p, quantity: Math.max(1, parseInt(e.target.value) || 1) }))}
+                <NumberField min={1} max={rentModal.available_qty} value={rentForm.quantity}
+                  onChange={n => setRentForm(p => ({ ...p, quantity: Math.max(1, n || 1) }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">{rentForm.rate_type === 'hourly' ? 'Hours' : 'Days'}</label>
-                <input type="number" min={1} value={rentForm.rate_type === 'hourly' ? rentForm.hours : rentForm.days}
-                  onChange={e => setRentForm(p => ({
+                <NumberField min={1} value={rentForm.rate_type === 'hourly' ? rentForm.hours : rentForm.days}
+                  onChange={n => setRentForm(p => ({
                     ...p,
-                    [rentForm.rate_type === 'hourly' ? 'hours' : 'days']: Math.max(1, parseInt(e.target.value) || 1),
+                    [rentForm.rate_type === 'hourly' ? 'hours' : 'days']: Math.max(1, n || 1),
                   }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
@@ -891,9 +895,9 @@ async function loadDamageLog() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Damage Charge (₱)</label>
-                  <input
-                    type="number" min={0} value={returnDamageCharge}
-                    onChange={e => setReturnDamageCharge(parseFloat(e.target.value) || 0)}
+                  <NumberField
+                    min={0} value={returnDamageCharge}
+                    onChange={n => setReturnDamageCharge(n)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
                   />
                 </div>
@@ -939,24 +943,24 @@ async function loadDamageLog() {
              
             <div>
               <label className="block text-xs text-gray-500 mb-1">Total Quantity</label>
-              <input type="number" value={form.total_quantity} onChange={ev => setForm(p => ({ ...p, total_quantity: parseInt(ev.target.value) || 1 }))}
+              <NumberField value={form.total_quantity} onChange={n => setForm(p => ({ ...p, total_quantity: n || 1 }))}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Hourly Rate</label>
-                <input type="number" value={form.hourly_rate} onChange={ev => setForm(p => ({ ...p, hourly_rate: parseFloat(ev.target.value) || 0 }))}
+                <NumberField value={form.hourly_rate} onChange={n => setForm(p => ({ ...p, hourly_rate: n }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Daily Rate</label>
-                <input type="number" value={form.daily_rate} onChange={ev => setForm(p => ({ ...p, daily_rate: parseFloat(ev.target.value) || 0 }))}
+                <NumberField value={form.daily_rate} onChange={n => setForm(p => ({ ...p, daily_rate: n }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Deposit Amount</label>
-              <input type="number" value={form.deposit_amount} onChange={ev => setForm(p => ({ ...p, deposit_amount: parseFloat(ev.target.value) || 0 }))}
+              <NumberField value={form.deposit_amount} onChange={n => setForm(p => ({ ...p, deposit_amount: n }))}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
             </div>
             <div className="flex gap-2 pt-1">

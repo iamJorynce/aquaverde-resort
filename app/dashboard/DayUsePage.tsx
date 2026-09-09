@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { todayInManila } from '@/lib/bookingDates'
 import PaymentCalculator, { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
 import { logActivity } from './activityLog'
+import NumberField from '@/components/NumberField'
 import { usePermissions } from './permissions'
 import { useResortSettings } from '@/hooks/useResortSettings'
 import { printReceipt } from './receipt'
@@ -49,7 +50,7 @@ export default function DayUsePage() {
     guest_name: '', guest_phone: '',
     with_parking: false,
     cottage_ids: [] as string[],
-    equipment_selections: {} as Record<string, { selected: boolean; quantity: number; rateType: 'hourly' | 'daily'; units: number }>,
+    equipment_selections: {} as Record<string, { selected: boolean; quantity: number | ''; rateType: 'hourly' | 'daily'; units: number | '' }>,
   })
 
   const [payment, setPayment] = useState({ method: 'cash', amountTendered: 0 })
@@ -129,7 +130,9 @@ export default function DayUsePage() {
       const item = equipment.find(e => e.id === id)
       if (!item) return null
       const r = s.rateType === 'hourly' ? item.hourly_rate ?? 0 : item.daily_rate ?? 0
-      return { id, name: item.name, quantity: s.quantity, units: s.units, rateType: s.rateType, amount: r * s.quantity * s.units }
+      const qty = Number(s.quantity) || 0
+      const units = Number(s.units) || 0
+      return { id, name: item.name, quantity: qty, units, rateType: s.rateType, amount: r * qty * units }
     }).filter(Boolean) as any[]
 
   const equipmentFee = equipmentLines.reduce((s, l) => s + l.amount, 0)
@@ -523,8 +526,8 @@ if (dayUseBooking) {
                           <option value="senior">senior</option>
                           <option value="pwd">pwd</option>
                         </select>
-                        <input type="number" value={rateForm[r.id]?.rate ?? r.rate}
-                          onChange={e => setRateForm(p => ({ ...p, [r.id]: { ...p[r.id], rate: parseFloat(e.target.value) || 0, name: p[r.id]?.name ?? r.name, guest_type: p[r.id]?.guest_type ?? r.guest_type, area: p[r.id]?.area ?? r.area, period: p[r.id]?.period ?? r.period } }))}
+                        <NumberField value={rateForm[r.id]?.rate ?? r.rate}
+                          onChange={n => setRateForm(p => ({ ...p, [r.id]: { ...p[r.id], rate: n, name: p[r.id]?.name ?? r.name, guest_type: p[r.id]?.guest_type ?? r.guest_type, area: p[r.id]?.area ?? r.area, period: p[r.id]?.period ?? r.period } }))}
                           className="w-20 px-2 py-1 border border-gray-200 rounded text-xs text-gray-900 bg-white text-right" />
                         <button type="button" onClick={() => deleteRate(r.id)} className="text-xs text-red-400 hover:text-red-600">Del</button>
                       </div>
@@ -611,12 +614,20 @@ if (dayUseBooking) {
                   {sel?.selected && (
                     <div className="flex items-center gap-2 mt-2 pl-6">
                       <div><label className="block text-xs text-gray-400">Qty</label>
-                        <input type="number" min={1} max={item.available_qty} value={sel.quantity}
-                          onChange={e => updateEqField(item.id, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                        <input type="number" inputMode="numeric" min={1} max={item.available_qty} value={sel.quantity}
+                          onChange={e => {
+                            const v = e.target.value
+                            updateEqField(item.id, 'quantity', v === '' ? '' : Math.max(0, parseInt(v) || 0))
+                          }}
+                          onBlur={() => updateEqField(item.id, 'quantity', (sel.quantity === '' || Number(sel.quantity) < 1) ? 1 : sel.quantity)}
                           className="w-14 px-2 py-1 border border-gray-200 rounded text-xs text-gray-900 bg-white" /></div>
                       <div><label className="block text-xs text-gray-400">{sel.rateType === 'hourly' ? 'Hours' : 'Days'}</label>
-                        <input type="number" min={1} value={sel.units}
-                          onChange={e => updateEqField(item.id, 'units', Math.max(1, parseInt(e.target.value) || 1))}
+                        <input type="number" inputMode="numeric" min={1} value={sel.units}
+                          onChange={e => {
+                            const v = e.target.value
+                            updateEqField(item.id, 'units', v === '' ? '' : Math.max(0, parseInt(v) || 0))
+                          }}
+                          onBlur={() => updateEqField(item.id, 'units', (sel.units === '' || Number(sel.units) < 1) ? 1 : sel.units)}
                           className="w-14 px-2 py-1 border border-gray-200 rounded text-xs text-gray-900 bg-white" /></div>
                     </div>
                   )}

@@ -110,15 +110,15 @@ function BookingPageContent() {
   const [form, setForm] = useState({
     check_in_date: today,
     check_out_date: tomorrow,
-    num_adults: 2,
-    num_children: 0,
+    num_adults: 2 as number | '',
+    num_children: 0 as number | '',
     room_ids: [] as string[],
     full_name: '', email: '', phone: '', special_requests: '',
     payment_method: 'gcash' as 'gcash' | 'bank_transfer',
     payment_reference: '',
   })
 
-  const totalPax = form.num_adults + form.num_children
+  const totalPax = (Number(form.num_adults) || 0) + (Number(form.num_children) || 0)
   const selectedRooms = rooms.filter(r => form.room_ids.includes(r.id))
   const selectedRoomsCapacity = selectedRooms.reduce((s, r) => s + (r.room_types_config?.max_capacity ?? 0), 0)
   const roomsFittingAlone = rooms.filter(r => (r.room_types_config?.max_capacity ?? 0) >= totalPax)
@@ -257,6 +257,14 @@ function BookingPageContent() {
     if (!proofFile) { setError('Please upload your proof of payment.'); return }
     if (!form.payment_reference) { setError('Please enter your payment reference number.'); return }
 
+    // Defensive: if a number field was left empty (e.g. submit tapped before
+    // blur fired on mobile), fall back to its minimum instead of sending 0/''.
+    const numAdults = form.num_adults === '' || Number(form.num_adults) < 1 ? 1 : Number(form.num_adults)
+    const numChildren = form.num_children === '' ? 0 : Number(form.num_children)
+    if (numAdults !== form.num_adults || numChildren !== form.num_children) {
+      setForm(p => ({ ...p, num_adults: numAdults, num_children: numChildren }))
+    }
+
     setLoading(true)
     setError('')
 
@@ -308,8 +316,8 @@ function BookingPageContent() {
           phone: form.phone || null,
           check_in_date: form.check_in_date,
           check_out_date: form.check_out_date,
-          num_adults: form.num_adults,
-          num_children: form.num_children,
+          num_adults: numAdults,
+          num_children: numChildren,
           room_lines: roomLines.map(rl => ({ room_id: rl.id, amount: rl.amount })),
           special_requests: form.special_requests || null,
           payment_proof_url: proofUrl,
@@ -377,14 +385,22 @@ function BookingPageContent() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Adults</label>
-                  <input type="number" min={1} max={20} value={form.num_adults}
-                    onChange={e => setForm(p => ({ ...p, num_adults: parseInt(e.target.value) || 1 }))}
+                  <input type="number" inputMode="numeric" min={1} max={20} value={form.num_adults}
+                    onChange={e => {
+                      const v = e.target.value
+                      setForm(p => ({ ...p, num_adults: v === '' ? '' : Math.max(0, parseInt(v) || 0) }))
+                    }}
+                    onBlur={() => setForm(p => ({ ...p, num_adults: (p.num_adults === '' || Number(p.num_adults) < 1) ? 1 : p.num_adults }))}
                     className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-900 bg-white" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Children</label>
-                  <input type="number" min={0} max={20} value={form.num_children}
-                    onChange={e => setForm(p => ({ ...p, num_children: parseInt(e.target.value) || 0 }))}
+                  <input type="number" inputMode="numeric" min={0} max={20} value={form.num_children}
+                    onChange={e => {
+                      const v = e.target.value
+                      setForm(p => ({ ...p, num_children: v === '' ? '' : Math.max(0, parseInt(v) || 0) }))
+                    }}
+                    onBlur={() => setForm(p => ({ ...p, num_children: p.num_children === '' ? 0 : p.num_children }))}
                     className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-900 bg-white" />
                 </div>
               </div>
@@ -547,7 +563,7 @@ function BookingPageContent() {
                   <div className="flex justify-between"><span className="text-gray-500">Check-in</span><span className="font-medium">{new Date(form.check_in_date).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">Check-out</span><span className="font-medium">{new Date(form.check_out_date).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">Duration</span><span className="font-medium">{nights} night{nights > 1 ? 's' : ''}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Guests</span><span className="font-medium">{form.num_adults} adult{form.num_adults > 1 ? 's' : ''}{form.num_children > 0 ? `, ${form.num_children} child${form.num_children > 1 ? 'ren' : ''}` : ''}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Guests</span><span className="font-medium">{Number(form.num_adults) || 0} adult{Number(form.num_adults) !== 1 ? 's' : ''}{Number(form.num_children) > 0 ? `, ${Number(form.num_children)} child${Number(form.num_children) > 1 ? 'ren' : ''}` : ''}</span></div>
                 </div>
                 <div className="border-t border-gray-100 px-4 py-3 space-y-2 text-sm">
                   <div className="flex justify-between"><span className="text-gray-500">Total Bill</span><span>₱{subtotal.toLocaleString()}</span></div>

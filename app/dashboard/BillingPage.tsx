@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import PaymentCalculator from './PaymentCalculator'
 import { logActivity } from './activityLog'
 import { createOrUpdateInvoice } from './invoiceUtils'
+import NumberField from '@/components/NumberField'
 import { printReceipt } from './receipt'
 import { useResortSettings } from '@/hooks/useResortSettings'
 
@@ -41,7 +42,7 @@ export default function BillingPage() {
     setLoading(true)
     const { data } = await supabase
   .from('invoices')
-  .select('*, guests(full_name, phone), bookings(booking_number, subtotal, check_in_date, check_out_date, accommodation_type, rooms(room_number), cottages(name))')
+  .select('*, guests(full_name, phone), bookings(booking_number, subtotal, check_in_date, check_out_date, accommodation_type, discount_amount, discount_reason, rooms(room_number), cottages(name))')
   .order('created_at', { ascending: false })
 setInvoices(data ?? [])
     setLoading(false)
@@ -56,7 +57,7 @@ setInvoices(data ?? [])
 
   async function openPay(inv: any) {
     const [{ data: addonData }, { data: posData }] = await Promise.all([
-      supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).order('created_at'),
+      supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).eq('voided', false).order('created_at'),
       supabase.from('orders')
         .select('id, order_number, total, created_at, order_items(quantity, unit_price, subtotal, menu_items(name))')
         .eq('booking_id', inv.booking_id)
@@ -73,7 +74,7 @@ setInvoices(data ?? [])
 
   async function openDetail(inv: any) {
     const [{ data: addonData }, { data: posData }] = await Promise.all([
-      supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).order('created_at'),
+      supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).eq('voided', false).order('created_at'),
       supabase.from('orders')
         .select('id, order_number, total, created_at, order_items(quantity, unit_price, subtotal, menu_items(name))')
         .eq('booking_id', inv.booking_id)
@@ -144,7 +145,7 @@ setInvoices(data ?? [])
   async function reprintReceipt(inv: any) {
   const [{ data: addons }, { data: posOrders }] = inv.booking_id
     ? await Promise.all([
-        supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).order('created_at'),
+        supabase.from('booking_addons').select('*').eq('booking_id', inv.booking_id).eq('voided', false).order('created_at'),
         supabase.from('orders')
           .select('id, order_number, total, created_at, order_items(quantity, unit_price, subtotal, menu_items(name))')
           .eq('booking_id', inv.booking_id)
@@ -193,6 +194,8 @@ setInvoices(data ?? [])
     checkoutdate: new Date(inv.bookings?.check_out_date).toLocaleDateString('en-PH', { dateStyle: 'medium' }) ?? 'Check out date',
     lineItems,
     total: Number(inv.total),
+    discount: Number(inv.bookings?.discount_amount ?? 0) || undefined,
+    discountReason: inv.bookings?.discount_reason ?? undefined,
     amountPaid: Number(inv.paid),
     balance: Number(inv.balance),
     paymentMethod: 'cash',
@@ -350,6 +353,12 @@ setInvoices(data ?? [])
               {detailAddons.length === 0 && detailPosOrders.length === 0 && !detailModal.bookings?.rooms && (
                 <div className="text-xs text-gray-400 italic">No itemized breakdown available.</div>
               )}
+              {Number(detailModal.bookings?.discount_amount ?? 0) > 0 && (
+                <div className="flex justify-between text-blue-600 text-xs">
+                  <span>{detailModal.bookings?.discount_reason ?? 'Discount'}</span>
+                  <span>-₱{Number(detailModal.bookings.discount_amount).toLocaleString()}</span>
+                </div>
+              )}
               <div className="flex justify-between font-medium text-gray-800 border-t border-gray-200 pt-1.5 mt-1">
                 <span>Total</span><span>₱{Number(detailModal.total).toLocaleString()}</span>
               </div>
@@ -427,8 +436,8 @@ setInvoices(data ?? [])
 
             <div className="mb-3">
               <label className="block text-xs text-gray-500 mb-1">Amount to Pay Now</label>
-              <input type="number" value={payAmount}
-                onChange={e => setPayAmount(parseFloat(e.target.value) || 0)}
+              <NumberField value={payAmount}
+                onChange={n => setPayAmount(n)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
             </div>
 

@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { todayInManila, nightsBetween } from '@/lib/bookingDates'
 import { printReceipt } from './receipt'
 import { isPaymentValid, paymentValidationMessage } from './PaymentCalculator'
+import NumberField from '@/components/NumberField'
 import PaymentCalculator from './PaymentCalculator'
 import { createOrUpdateInvoice } from './invoiceUtils'
 import { logActivity } from './activityLog'
@@ -51,6 +52,21 @@ function groupRows(bookings: any[]): BookingGroup[] {
       extraEquipment,
     }
   })
+}
+
+const DISCOUNT_LABELS: Record<'senior' | 'pwd' | 'athlete', string> = {
+  senior: 'Senior Citizen Discount (20%)',
+  pwd: 'PWD Discount (20%)',
+  athlete: 'Athlete/Coach Discount (20%)',
+}
+
+// Which rate field on room_types_config prices a given short-time duration
+// (3hr/6hr/12hr are flat rates, NOT multiplied by nights). Used by Room
+// Transfer so a short-time guest's transfer is priced correctly instead of
+// falling back to the overnight base_rate.
+function shortTimeRate(rtc: any, duration: string | null | undefined): number | null {
+  if (!rtc || !duration || duration === 'overnight') return null
+  return duration === '3hr' ? rtc.rate_3hr : duration === '6hr' ? rtc.rate_6hr : duration === '12hr' ? rtc.rate_12hr : null
 }
 
 function groupBalance(group: BookingGroup) {
@@ -105,6 +121,14 @@ export default function CheckInOutPage() {
   const { settings: resortSettings } = useResortSettings()
 
   const [tab, setTab] = useState<'in' | 'active' | 'out' | 'dayuse_day' | 'dayuse_night'>('in')
+  // Live clock — always-visible current time so front desk can eyeball at a
+  // glance whether a short-time guest's due time has passed, without having
+  // to check their phone or a separate clock.
+  const [now, setNow] = useState(new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
   // Which "Due for Check-Out" groups are expanded to show each booking
   // individually so front desk can check guests out one room at a time
   // instead of only "Check Out All" for the whole group.
@@ -122,6 +146,10 @@ export default function CheckInOutPage() {
   const [checkinAmount, setCheckinAmount] = useState(0)
   const [checkinMethod, setCheckinMethod] = useState('cash')
   const [processingCheckin, setProcessingCheckin] = useState(false)
+  // Senior Citizen / PWD / Athlete-Coach — 20% off the room/cottage total,
+  // selected at check-in so the amount collected here is already correct
+  // (RA 9994, RA 10754, RA 10699).
+  const [checkinDiscountType, setCheckinDiscountType] = useState<'none' | 'senior' | 'pwd' | 'athlete'>('none')
 
   // Bill detail modal (view-only, works on a GROUP)
   const [billDetail, setBillDetail] = useState<{ group: BookingGroup; addons: any[]; posOrders: any[] } | null>(null)
@@ -144,6 +172,15 @@ export default function CheckInOutPage() {
   }>>({})
   const [pendingCheckoutGroup, setPendingCheckoutGroup] = useState<BookingGroup | null>(null)
 
+  // Room inspection & key return gate — runs after equipment check (if any),
+  // before the payment modal, for every booking in the group that has a
+  // room_id. Damage/lost-key charges get added to that booking's bill,
+  // same treatment as equipment damage above.
+  const [roomCheckModal, setRoomCheckModal] = useState<any[]>([])
+  const [roomConditions, setRoomConditions] = useState<Record<string, {
+    keyReturned: boolean; keyCharge: number; condition: 'good' | 'damaged'; notes: string; damageCharge: number
+  }>>({})
+
   // Day use damage payment modal
   const [damagePaymentModal, setDamagePaymentModal] = useState<{
     finalBooking: any; damageTotal: number; allCottageIds: string[]
@@ -163,6 +200,15 @@ export default function CheckInOutPage() {
   const [selectedExtraId, setSelectedExtraId] = useState('')
   const [addingExtra, setAddingExtra] = useState(false)
 
+  // "Extend" — a short-time (3hr/6hr/12hr) room booking's guest wants to
+  // stay past their expected_check_out_at. Charges a flat per-hour rate
+  // (room type's extend_hourly_rate) added to the bill, collected at
+  // checkout just like any other extra — mirrors the Add Extra pattern.
+  const [extendModal, setExtendModal] = useState<BookingGroup | null>(null)
+  const [extendHourlyRate, setExtendHourlyRate] = useState<number | null>(null)
+  const [extendHours, setExtendHours] = useState(3)
+  const [extending, setExtending] = useState(false)
+
   // "Add Room" for a day-use guest who decides mid-visit to stay overnight.
   // Creates a real, separate overnight room booking linked to the day-use
   // guest (same guest_id, shared group_number) — the day-use entry itself
@@ -171,7 +217,7 @@ export default function CheckInOutPage() {
   const [dayUseAvailableRooms, setDayUseAvailableRooms] = useState<any[]>([])
   const [dayUseSelectedRoomId, setDayUseSelectedRoomId] = useState('')
   const [dayUseRoomNights, setDayUseRoomNights] = useState(1)
-  const [dayUseRoomPax, setDayUseRoomPax] = useState(1)
+  const [dayUseRoomPax, setDayUseRoomPax] = useState<number | ''>(1)
   const [addingDayUseRoom, setAddingDayUseRoom] = useState(false)
 
   // "Add Cottage" for a Day/Night Pass guest who decides mid-visit to rent
@@ -179,6 +225,15 @@ export default function CheckInOutPage() {
   // category 'cottage_addon'), priced off the same day/night period they
   // checked in under. Mirrors the "Add Room" flow above.
   const [dayUseAddCottageModal, setDayUseAddCottageModal] = useState<any>(null)
+
+  // Room Transfer — move an already-checked-in guest to a different room.
+  // `booking` is null while the staff is still picking WHICH room to move
+  // (only relevant for a multi-room group booking).
+  const [transferModal, setTransferModal] = useState<{ group: BookingGroup; booking: any | null } | null>(null)
+  const [transferAvailableRooms, setTransferAvailableRooms] = useState<any[]>([])
+  const [transferSelectedRoomId, setTransferSelectedRoomId] = useState('')
+  const [transferNewTotal, setTransferNewTotal] = useState<number | ''>(0)
+  const [processingTransfer, setProcessingTransfer] = useState(false)
   const [dayUseAvailableCottages, setDayUseAvailableCottages] = useState<any[]>([])
   const [dayUseSelectedCottageId, setDayUseSelectedCottageId] = useState('')
   const [dayUseCottageMethod, setDayUseCottageMethod] = useState('cash')
@@ -241,10 +296,10 @@ export default function CheckInOutPage() {
     const [{ data: allCottages }, { data: extraAddons }, { data: extraEquipment }] = await Promise.all([
       supabase.from('cottages').select('id, name'),
       overnightIds.length
-        ? supabase.from('booking_addons').select('booking_id, name, category').in('booking_id', overnightIds)
+        ? supabase.from('booking_addons').select('booking_id, name, category').eq('voided', false).in('booking_id', overnightIds)
         : Promise.resolve({ data: [] as any[] }),
       overnightIds.length
-        ? supabase.from('equipment_rentals').select('booking_id, quantity, rental_end, equipment(name)').in('booking_id', overnightIds)
+        ? supabase.from('equipment_rentals').select('booking_id, quantity, rental_end, equipment(name)').neq('status', 'voided').in('booking_id', overnightIds)
         : Promise.resolve({ data: [] as any[] }),
     ])
 
@@ -296,23 +351,33 @@ export default function CheckInOutPage() {
 
   // ---- Check-in (operates on a whole group) ----
   async function handleCheckIn(group: BookingGroup) {
+    // Always route through the modal (even with zero balance) so staff get
+    // a chance to apply the Senior/PWD/Athlete-Coach discount before the
+    // stay total is finalized.
     const balance = groupBalance(group)
-    if (balance > 0) {
-      setCheckinPaymentModal(group)
-      setCheckinAmount(balance)
-      setCheckinMethod('cash')
-      return
-    }
-    await finalizeCheckIn(group, 0, null)
+    setCheckinPaymentModal(group)
+    setCheckinAmount(balance)
+    setCheckinMethod('cash')
+    setCheckinDiscountType('none')
   }
 
-  async function finalizeCheckIn(group: BookingGroup, paidNow: number, method: string | null) {
+  async function finalizeCheckIn(group: BookingGroup, paidNow: number, method: string | null, discountType: 'none' | 'senior' | 'pwd' | 'athlete' = 'none') {
     setProcessingCheckin(true)
     const wristband = `WB-${Date.now().toString().slice(-6)}`
-    const totalGroupBalance = groupBalance(group)
+
+    // Discount applied here (not at checkout) so the balance staff collect
+    // right now already reflects it — 20% off each booking's total_amount.
+    const applyDiscount = discountType !== 'none'
+    const preDiscountGroupTotal = groupTotal(group)
+    const groupDiscountAmount = applyDiscount ? Math.round(preDiscountGroupTotal * 0.20) : 0
+    const totalGroupBalance = Math.max(0, groupBalance(group) - groupDiscountAmount)
 
     for (const booking of group.items) {
-      const bookingBalance = Math.max(0, Number(booking.total_amount) - Number(booking.amount_paid))
+      const bookingDiscountShare = applyDiscount && preDiscountGroupTotal > 0
+        ? Math.round((Number(booking.total_amount) / preDiscountGroupTotal) * groupDiscountAmount)
+        : 0
+      const newTotalAmount = Number(booking.total_amount) - bookingDiscountShare
+      const bookingBalance = Math.max(0, newTotalAmount - Number(booking.amount_paid))
       const share = totalGroupBalance > 0 ? Math.round((bookingBalance / totalGroupBalance) * paidNow) : 0
       const newAmountPaid = Number(booking.amount_paid) + share
 
@@ -321,7 +386,12 @@ export default function CheckInOutPage() {
         actual_check_in: new Date().toISOString(),
         wristband_number: wristband,
         amount_paid: newAmountPaid,
-        payment_status: newAmountPaid >= Number(booking.total_amount) ? 'paid' : 'partial',
+        payment_status: newAmountPaid >= newTotalAmount ? 'paid' : 'partial',
+        ...(applyDiscount ? {
+          total_amount: newTotalAmount,
+          discount_amount: Number(booking.discount_amount ?? 0) + bookingDiscountShare,
+          discount_reason: DISCOUNT_LABELS[discountType as 'senior' | 'pwd' | 'athlete'],
+        } : {}),
       }).eq('id', booking.id)
 
       if (error) { showToast('Error: ' + error.message); setProcessingCheckin(false); return }
@@ -343,7 +413,7 @@ export default function CheckInOutPage() {
       })
     }
 
-    showToast(`${(group.primary.guests as any)?.full_name} checked in! Wristband: ${wristband}${paidNow > 0 ? ` · ₱${paidNow.toLocaleString()} balance collected` : ''}`)
+    showToast(`${(group.primary.guests as any)?.full_name} checked in! Wristband: ${wristband}${paidNow > 0 ? ` · ₱${paidNow.toLocaleString()} balance collected` : ''}${applyDiscount ? ` · ${DISCOUNT_LABELS[discountType as 'senior' | 'pwd' | 'athlete']} applied` : ''}`)
     setCheckinPaymentModal(null)
     setProcessingCheckin(false)
     load()
@@ -351,7 +421,7 @@ export default function CheckInOutPage() {
 
   async function confirmCheckInPayment() {
     if (!checkinPaymentModal) return
-    await finalizeCheckIn(checkinPaymentModal, checkinAmount, checkinMethod)
+    await finalizeCheckIn(checkinPaymentModal, checkinAmount, checkinMethod, checkinDiscountType)
   }
 
   // ---- View bill (operates on a whole group) ----
@@ -363,6 +433,7 @@ export default function CheckInOutPage() {
     const [{ data: addons }, { data: posOrders }] = await Promise.all([
       supabase.from('booking_addons')
         .select('*')
+        .eq('voided', false)
         .in('booking_id', allBookingIds)
         .order('created_at'),
       supabase.from('orders')
@@ -491,6 +562,61 @@ export default function CheckInOutPage() {
     }
   }
 
+  // ---- Extend a short-time (3hr/6hr/12hr) room stay ----
+  async function openExtendModal(group: BookingGroup) {
+    setExtendHours(3)
+    setExtendModal(group)
+    setExtendHourlyRate(null)
+
+    if (!group.primary.room_id) return
+    const { data: room } = await supabase
+      .from('rooms')
+      .select('room_types_config(extend_hourly_rate)')
+      .eq('id', group.primary.room_id)
+      .single()
+    setExtendHourlyRate((room?.room_types_config as any)?.extend_hourly_rate ?? null)
+  }
+
+  async function confirmExtend() {
+    if (!extendModal || extendHourlyRate == null || extendHours <= 0) return
+    const booking = extendModal.primary
+    setExtending(true)
+
+    try {
+      const fee = extendHourlyRate * extendHours
+      // Extend from whichever is later — the original expected checkout,
+      // or now (covers a stay that's already run past its original time).
+      const base = booking.expected_check_out_at ? new Date(booking.expected_check_out_at) : new Date()
+      const from = base.getTime() > Date.now() ? base : new Date()
+      const newExpectedCheckOut = new Date(from.getTime() + extendHours * 60 * 60 * 1000)
+
+      const { error: updateError } = await supabase.from('bookings').update({
+        expected_check_out_at: newExpectedCheckOut.toISOString(),
+        extended_hours: Number(booking.extended_hours ?? 0) + extendHours,
+        extension_fee: Number(booking.extension_fee ?? 0) + fee,
+        extras_total: Number(booking.extras_total ?? 0) + fee,
+        total_amount: Number(booking.total_amount) + fee,
+      }).eq('id', booking.id)
+      if (updateError) throw new Error(updateError.message)
+
+      await supabase.from('booking_addons').insert({
+        booking_id: booking.id,
+        name: `Extension — ${extendHours} hr(s)`,
+        quantity: extendHours,
+        unit_price: extendHourlyRate,
+        category: 'extension',
+      })
+
+      showToast(`Extended by ${extendHours} hr(s) — ₱${fee.toLocaleString()} added to the bill (collected at check-out).`)
+      setExtendModal(null)
+      load()
+    } catch (err: any) {
+      showToast('Error: ' + (err.message || 'Could not extend the stay.'))
+    } finally {
+      setExtending(false)
+    }
+  }
+
   // ---- Day-use guest decides to add an overnight room mid-visit ----
   async function openDayUseAddRoomModal(b: any) {
     setDayUseSelectedRoomId('')
@@ -523,7 +649,8 @@ export default function CheckInOutPage() {
     const r = dayUseAvailableRooms.find(x => x.id === dayUseSelectedRoomId)
     if (!r) return
     const cap = (r.room_types_config as any)?.max_capacity ?? 0
-    if (dayUseRoomPax > cap) return // guarded in the UI too — see disabled state below
+    const pax = dayUseRoomPax === '' || Number(dayUseRoomPax) < 1 ? 1 : Number(dayUseRoomPax)
+    if (pax > cap) return // guarded in the UI too — see disabled state below
     setAddingDayUseRoom(true)
 
     try {
@@ -546,7 +673,7 @@ export default function CheckInOutPage() {
         room_id: r.id,
         accommodation_type: 'room',
         booking_type: b.booking_type ?? 'walk_in',
-        num_adults: dayUseRoomPax, num_children: 0,
+        num_adults: pax, num_children: 0,
         group_number: groupNumber,
         is_group_primary: false,
         check_in_date: today,
@@ -576,7 +703,104 @@ export default function CheckInOutPage() {
     }
   }
 
-  // ---- Day-use guest decides to add a cottage mid-visit ----
+  // ---- Room Transfer (move an already-checked-in guest to another room) ----
+  function openTransferModal(group: BookingGroup) {
+    const roomBookings = group.items.filter((b: any) => b.room_id)
+    if (roomBookings.length === 0) return
+    if (roomBookings.length === 1) {
+      selectBookingToTransfer(group, roomBookings[0])
+    } else {
+      // Multi-room group — ask which room to move first.
+      setTransferModal({ group, booking: null })
+    }
+  }
+
+  async function selectBookingToTransfer(group: BookingGroup, booking: any) {
+    setTransferModal({ group, booking })
+    setTransferSelectedRoomId('')
+    setTransferNewTotal(Number(booking.total_amount))
+    setProcessingTransfer(false)
+
+    // Rooms free for this booking's entire stay (not just today) — same
+    // overlap check used elsewhere, excluding the room they're already in.
+    const { data: overlaps } = await supabase
+      .from('vw_room_booking_ranges')
+      .select('room_id')
+      .not('room_id', 'is', null)
+      .neq('room_id', booking.room_id)
+      .lt('check_in_date', booking.check_out_date)
+      .gt('check_out_date', booking.check_in_date)
+    const bookedRoomIds = new Set((overlaps ?? []).map((x: any) => x.room_id))
+
+    const { data: allRooms } = await supabase
+      .from('rooms')
+      .select('id, room_number, status, room_types_config(name, base_rate, max_capacity, rate_3hr, rate_6hr, rate_12hr)')
+      .eq('status', 'available')
+      .neq('id', booking.room_id)
+      .order('room_number')
+
+    const isShortTime = booking.duration_type && booking.duration_type !== 'overnight'
+    setTransferAvailableRooms((allRooms ?? []).filter((r: any) =>
+      !bookedRoomIds.has(r.id) &&
+      // For a short-time stay, only show rooms that actually have a flat
+      // rate configured for that duration — same rule WalkInPage applies
+      // when first booking short-time.
+      (!isShortTime || shortTimeRate(r.room_types_config, booking.duration_type) != null)
+    ))
+  }
+
+  async function confirmTransfer() {
+    if (!transferModal?.booking || !transferSelectedRoomId) return
+    setProcessingTransfer(true)
+    const booking = transferModal.booking
+    const oldRoomId = booking.room_id
+    const oldRoomLabel = booking.rooms?.room_number ? `Room ${booking.rooms.room_number}` : 'previous room'
+    const newRoom = transferAvailableRooms.find(r => r.id === transferSelectedRoomId)
+
+    const newTotal = transferNewTotal === '' ? Number(booking.total_amount) : Number(transferNewTotal)
+
+    // If a Senior/PWD/Athlete-Coach discount was already on this booking,
+    // keep it accurate against the new room's rate instead of leaving the
+    // old (now-wrong) discount figure — that number feeds the remittance
+    // discount report. Recomputed as "new room's rate minus what's actually
+    // being charged", so it stays correct even if staff typed a custom total.
+    // Short-time (3hr/6hr/12hr) uses its own flat rate, not × nights.
+    const hadDiscount = Number(booking.discount_amount ?? 0) > 0 && !!booking.discount_reason
+    let discountUpdate: Record<string, any> = {}
+    if (hadDiscount && newRoom) {
+      const isShortTime = booking.duration_type && booking.duration_type !== 'overnight'
+      const newGross = isShortTime
+        ? (shortTimeRate(newRoom.room_types_config, booking.duration_type) ?? 0)
+        : Number((newRoom.room_types_config as any)?.base_rate ?? 0) * Math.max(1, nightsBetween(booking.check_in_date, booking.check_out_date))
+      discountUpdate = { subtotal: newGross, discount_amount: Math.max(0, newGross - newTotal) }
+    }
+
+    const { error } = await supabase.from('bookings').update({
+      room_id: transferSelectedRoomId,
+      ...(newTotal !== Number(booking.total_amount) ? { total_amount: newTotal } : {}),
+      ...discountUpdate,
+    }).eq('id', booking.id)
+
+    if (error) { showToast('Error: ' + error.message); setProcessingTransfer(false); return }
+
+    // Most transfers happen before the guest ever actually used the old
+    // room (e.g. requested a different view/floor right after check-in),
+    // so it goes straight back to available — not into the cleaning queue.
+    await supabase.from('rooms').update({ status: 'available' }).eq('id', oldRoomId)
+    await supabase.from('rooms').update({ status: 'occupied' }).eq('id', transferSelectedRoomId)
+
+    await logActivity(supabase, {
+      action: 'ROOM_TRANSFER',
+      details: `${booking.booking_number} — ${(transferModal.group.primary.guests as any)?.full_name} moved from ${oldRoomLabel} to Room ${newRoom?.room_number ?? '—'}${newTotal !== Number(booking.total_amount) ? ` · bill adjusted to ₱${newTotal.toLocaleString()}` : ''}${hadDiscount ? ` · ${booking.discount_reason} re-applied (₱${discountUpdate.discount_amount?.toLocaleString?.() ?? ''})` : ''}`,
+    })
+
+    showToast(`Transferred to Room ${newRoom?.room_number ?? ''}. ${oldRoomLabel} is now available.`)
+    setTransferModal(null)
+    setProcessingTransfer(false)
+    load()
+  }
+
+
   // Unlike overnight "Add Extra", day-use checkout never runs the group
   // checkout/payment flow, so there's no later step that would collect
   // cash for this or print a receipt. Payment is collected right here,
@@ -678,11 +902,13 @@ export default function CheckInOutPage() {
     const [{ data: addons }, { data: rentals }, { data: posOrders }] = await Promise.all([
       supabase.from('booking_addons')
         .select('*')
+        .eq('voided', false)
         .in('booking_id', allBookingIds)
         .order('created_at'),
       supabase.from('equipment_rentals')
         .select('id, equipment_id, quantity, equipment(name)')
         .in('booking_id', allBookingIds)
+        .neq('status', 'voided')
         .is('rental_end', null),
       supabase.from('orders')
         .select('id, order_number, total, created_at, order_items(quantity, unit_price, subtotal, menu_items(name))')
@@ -697,11 +923,23 @@ export default function CheckInOutPage() {
         rentals.map((r: any) => [r.id, { condition: "good", notes: "", charge: 0 }])
       ))
       setPendingCheckoutGroup(group)
+    } else if (group.items.some((b: any) => b.room_id)) {
+      openRoomCheck(group)
     } else {
       setCheckoutModal({ group, addons: addons ?? [], posOrders: posOrders ?? [], mode: 'checkout' })
       setCheckoutAmount(balance)
       setCheckoutMethod("cash")
     }
+  }
+
+  // ---- Open room inspection & key return gate for every room in the group ----
+  function openRoomCheck(group: BookingGroup) {
+    const roomItems = group.items.filter((b: any) => b.room_id)
+    setRoomCheckModal(roomItems)
+    setRoomConditions(Object.fromEntries(
+      roomItems.map((b: any) => [b.id, { keyReturned: true, keyCharge: 0, condition: 'good' as const, notes: '', damageCharge: 0 }])
+    ))
+    setPendingCheckoutGroup(group)
   }
 
   // ---- Record a payment mid-stay (does NOT check the guest out) ----
@@ -713,7 +951,7 @@ export default function CheckInOutPage() {
     const allBookingIds = group.items.map((b: any) => b.id)
 
     const [{ data: addons }, { data: posOrders }] = await Promise.all([
-      supabase.from('booking_addons').select('*').in('booking_id', allBookingIds).order('created_at'),
+      supabase.from('booking_addons').select('*').eq('voided', false).in('booking_id', allBookingIds).order('created_at'),
       supabase.from('orders')
         .select('id, order_number, total, created_at, order_items(quantity, unit_price, subtotal, menu_items(name))')
         .in('booking_id', allBookingIds)
@@ -797,10 +1035,99 @@ export default function CheckInOutPage() {
       return
     }
 
-    // Overnight group: proceed to group checkout payment modal
+    // Overnight group: room inspection & key return next, then payment
+    if (refreshedGroup.items.some((b: any) => b.room_id)) {
+      openRoomCheck(refreshedGroup)
+      return
+    }
+
     const allGroupIds = refreshedGroup.items.map((b: any) => b.id)
     const [{ data: updatedAddons }, { data: updatedPosOrders }] = await Promise.all([
-      supabase.from('booking_addons').select('*').in('booking_id', allGroupIds).order('created_at'),
+      supabase.from('booking_addons').select('*').eq('voided', false).in('booking_id', allGroupIds).order('created_at'),
+      supabase.from('orders')
+        .select('id, order_number, total, created_at, order_items(quantity, unit_price, subtotal, menu_items(name))')
+        .in('booking_id', allGroupIds)
+        .eq('order_type', 'room_service')
+        .order('created_at'),
+    ])
+    setCheckoutModal({ group: refreshedGroup, addons: updatedAddons ?? [], posOrders: updatedPosOrders ?? [], mode: 'checkout' })
+    setCheckoutAmount(groupBalance(refreshedGroup))
+    setCheckoutMethod('cash')
+  }
+
+  // ---- Confirm room inspection & key return (runs after equipment check, before payment) ----
+  async function confirmRoomCheck() {
+    if (!pendingCheckoutGroup) return
+    const group = pendingCheckoutGroup
+
+    for (const booking of roomCheckModal) {
+      const cond = roomConditions[booking.id]
+      if (!cond) continue
+
+      const charges: { name: string; amount: number }[] = []
+      if (cond.condition === 'damaged' && cond.damageCharge > 0) {
+        charges.push({ name: 'Room damage charge', amount: cond.damageCharge })
+      }
+      if (!cond.keyReturned && cond.keyCharge > 0) {
+        charges.push({ name: 'Lost room key charge', amount: cond.keyCharge })
+      }
+
+      for (const charge of charges) {
+        await supabase.from('booking_addons').insert({
+          booking_id: booking.id,
+          name: charge.name,
+          quantity: 1,
+          unit_price: charge.amount,
+        })
+      }
+
+      const totalCharge = charges.reduce((s, c) => s + c.amount, 0)
+      if (totalCharge > 0) {
+        await supabase.from('bookings').update({
+          total_amount: Number(booking.total_amount) + totalCharge,
+          extras_total: Number(booking.extras_total ?? 0) + totalCharge,
+        }).eq('id', booking.id)
+      }
+
+      // Damaged room → also raise a maintenance ticket so housekeeping/
+      // maintenance sees it, on top of the damage charge on the bill.
+      if (cond.condition === 'damaged' && booking.room_id) {
+        await supabase.from('maintenance_requests').insert({
+          ticket_number: `MT-${Date.now().toString().slice(-6)}`,
+          room_id: booking.room_id,
+          title: `Room damage reported at check-out — ${booking.booking_number}`,
+          description: cond.notes || null,
+          priority: 'high',
+          status: 'pending',
+        })
+      }
+
+      await logActivity(supabase, {
+        action: 'ROOM_INSPECTED',
+        details: `${booking.booking_number} — room ${cond.condition}, key ${cond.keyReturned ? 'returned' : 'NOT returned'}` +
+          (totalCharge > 0 ? ` — ₱${totalCharge.toLocaleString()} charged` : ''),
+      })
+    }
+
+    // Refresh the whole group (total_amount may have changed due to charges)
+    const { data: updatedItems } = await supabase
+      .from('bookings')
+      .select('*, guests(full_name, phone), rooms(room_number, id), cottages(name, cottage_code, id), cottage_ids, group_number, is_group_primary')
+      .in('id', group.items.map(b => b.id))
+
+    const refreshedItems = updatedItems ?? group.items
+    const refreshedPrimary = refreshedItems.find((b: any) => b.is_group_primary !== false) ?? refreshedItems[0]
+    const refreshedGroup: BookingGroup = {
+      key: group.key, primary: refreshedPrimary, items: refreshedItems, roomLabel: group.roomLabel,
+      extraCottageNames: group.extraCottageNames, extraEquipment: group.extraEquipment,
+    }
+
+    setRoomCheckModal([])
+    setPendingCheckoutGroup(null)
+
+    const allGroupIds = refreshedGroup.items.map((b: any) => b.id)
+    const [{ data: updatedAddons }, { data: updatedPosOrders }] = await Promise.all([
+      supabase.from('booking_addons').select('*').eq('voided', false).in('booking_id', allGroupIds).order('created_at'),
       supabase.from('orders')
         .select('id, order_number, total, created_at, order_items(quantity, unit_price, subtotal, menu_items(name))')
         .in('booking_id', allGroupIds)
@@ -971,6 +1298,11 @@ export default function CheckInOutPage() {
       amount: Number(a.total_price ?? a.unit_price * a.quantity),
     }))
 
+    // Discount (if any) was already applied at check-in — surface it here
+    // purely for the receipt, not recomputed.
+    const groupDiscountAmount = group.items.reduce((s: number, b: any) => s + Number(b.discount_amount ?? 0), 0)
+    const groupDiscountReason = group.primary.discount_reason as string | null
+
     printReceipt({
       title: resortSettings.resort_name,
       subtitle: resortSettings.address,
@@ -980,6 +1312,8 @@ export default function CheckInOutPage() {
       guestName,
       lineItems: [...roomLines, ...posLines, ...addonLines],
       total: groupTotal(group),
+      discount: groupDiscountAmount || undefined,
+      discountReason: groupDiscountAmount > 0 ? (groupDiscountReason ?? undefined) : undefined,
       amountPaid: groupPaid(group) + checkoutAmount,
       balance: remainingGroupBalance,
       paymentMethod: checkoutMethod,
@@ -1102,19 +1436,31 @@ export default function CheckInOutPage() {
         </div>
       )}
 
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-4 w-fit flex-wrap">
-        {([
-          { id: 'in',      label: `Check-In (${checkinGroups.length})` },
-          { id: 'active',  label: `Active Stays (${activeGroups.length})` },
-          { id: 'out',     label: `Due for Check-Out (${checkoutGroups.length})` },
-          /*{ id: 'dayuse_day',   label: `Day Pass (${dayPassGuests.length})` },*/
-         /* { id: 'dayuse_night', label: `Night Pass (${nightPassGuests.length})` },*/
-        ] as const).map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === t.id ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500'}`}>
-            {t.label}
-          </button>
-        ))}
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit flex-wrap">
+          {([
+            { id: 'in',      label: `Check-In (${checkinGroups.length})` },
+            { id: 'active',  label: `Active Stays (${activeGroups.length})` },
+            { id: 'out',     label: `Due for Check-Out (${checkoutGroups.length})` },
+            /*{ id: 'dayuse_day',   label: `Day Pass (${dayPassGuests.length})` },*/
+           /* { id: 'dayuse_night', label: `Night Pass (${nightPassGuests.length})` },*/
+          ] as const).map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === t.id ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Live clock — front desk's reference point for short-time due times */}
+        <div className="flex items-center gap-2 bg-gray-900 text-white rounded-xl px-4 py-2 text-sm font-mono tabular-nums">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          </span>
+          {now.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
+          <span className="text-gray-400 font-sans">{now.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+        </div>
       </div>
 
       <div className="relative mb-4 max-w-sm">
@@ -1243,7 +1589,35 @@ export default function CheckInOutPage() {
                         <td className="px-4 py-2.5 text-gray-500">{g.roomLabel}</td>
                         <td className="px-4 py-2.5"><ExtrasBadges group={g} /></td>
                         <td className="px-4 py-2.5 text-gray-500">{g.primary.check_in_date}</td>
-                        <td className="px-4 py-2.5 text-gray-500">{g.primary.check_out_date}</td>
+                        <td className="px-4 py-2.5 text-gray-500">
+                          {g.primary.duration_type && g.primary.duration_type !== 'overnight' ? (
+                            <div>
+                              <span className="text-[10px] bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded-full whitespace-nowrap font-medium">
+                                ⏱ {g.primary.duration_type === '3hr' ? '3 Hrs' : g.primary.duration_type === '6hr' ? '6 Hrs' : '12 Hrs'}
+                                {Number(g.primary.extended_hours) > 0 ? ` +${g.primary.extended_hours}h` : ''}
+                              </span>
+                              {(() => {
+                                const isOverdue = g.primary.expected_check_out_at && new Date(g.primary.expected_check_out_at) < now
+                                return (
+                                  <div className={`text-sm mt-1 font-semibold whitespace-nowrap ${isOverdue ? 'text-red-600 animate-pulse' : 'text-gray-700'}`}>
+                                    {g.primary.expected_check_out_at
+                                      ? <>Due {new Date(g.primary.expected_check_out_at).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}{isOverdue ? ' · OVERDUE' : ''}</>
+                                      : '—'}
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                          ) : (
+                            <div>
+                              <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full whitespace-nowrap font-medium">
+                                🌙 Overnight
+                              </span>
+                              <div className="text-sm mt-1 font-semibold text-gray-700 whitespace-nowrap">
+                                {g.primary.check_out_date}
+                              </div>
+                            </div>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-gray-500">{g.primary.wristband_number ?? '—'}</td>
                         <td className="px-4 py-2.5">
                           <button onClick={() => viewBill(g)}
@@ -1254,6 +1628,18 @@ export default function CheckInOutPage() {
                             className="px-3 py-1.5 border border-blue-200 text-blue-700 hover:bg-blue-50 text-xs rounded-lg mr-1">
                             + Add Extra
                           </button>
+                          {g.items.some((b: any) => b.room_id) && (
+                            <button onClick={() => openTransferModal(g)}
+                              className="px-3 py-1.5 border border-purple-200 text-purple-700 hover:bg-purple-50 text-xs rounded-lg mr-1">
+                              🔄 Transfer Room
+                            </button>
+                          )}
+                          {g.primary.duration_type && g.primary.duration_type !== 'overnight' && (
+                            <button onClick={() => openExtendModal(g)}
+                              className="px-3 py-1.5 border border-teal-200 text-teal-700 hover:bg-teal-50 text-xs rounded-lg mr-1">
+                              ⏱ Extend
+                            </button>
+                          )}
                           <button onClick={() => openCheckoutModal(g)}
                             className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg">
                             Check Out{g.items.length > 1 ? ' All' : ''}
@@ -1565,7 +1951,7 @@ export default function CheckInOutPage() {
               <div className="space-y-2 max-h-52 overflow-y-auto mb-4">
                 {dayUseAvailableRooms.map((r: any) => {
                   const cap = (r.room_types_config as any)?.max_capacity ?? 0
-                  const tooSmall = cap < dayUseRoomPax
+                  const tooSmall = cap < (Number(dayUseRoomPax) || 0)
                   return (
                     <label key={r.id} className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer ${dayUseSelectedRoomId === r.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200'} ${tooSmall ? 'opacity-40' : ''}`}>
                       <div className="flex items-center gap-2">
@@ -1582,8 +1968,12 @@ export default function CheckInOutPage() {
 
             <div className="mb-3">
               <label className="block text-xs text-gray-500 mb-1">Guests for this Room</label>
-              <input type="number" min={1} value={dayUseRoomPax}
-                onChange={e => setDayUseRoomPax(Math.max(1, parseInt(e.target.value) || 1))}
+              <input type="number" inputMode="numeric" min={1} value={dayUseRoomPax}
+                onChange={e => {
+                  const v = e.target.value
+                  setDayUseRoomPax(v === '' ? '' : Math.max(0, parseInt(v) || 0))
+                }}
+                onBlur={() => setDayUseRoomPax(p => (p === '' || Number(p) < 1) ? 1 : p)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               <div className="text-[11px] text-gray-400 mt-1">Defaults to this guest's whole day-use headcount — lower it if only part of the group is staying overnight.</div>
             </div>
@@ -1591,7 +1981,7 @@ export default function CheckInOutPage() {
             {(() => {
               const r = dayUseAvailableRooms.find((x: any) => x.id === dayUseSelectedRoomId)
               const cap = (r?.room_types_config as any)?.max_capacity ?? 0
-              return dayUseSelectedRoomId && dayUseRoomPax > cap ? (
+              return dayUseSelectedRoomId && (Number(dayUseRoomPax) || 0) > cap ? (
                 <div className="text-xs text-red-600 bg-red-50 rounded-lg p-2.5 mb-3">
                   {dayUseRoomPax} guests won't fit — Room {r.room_number} sleeps {cap} max. Pick a bigger room or lower the guest count.
                 </div>
@@ -1600,8 +1990,8 @@ export default function CheckInOutPage() {
 
             <div className="mb-4">
               <label className="block text-xs text-gray-500 mb-1">Number of Nights</label>
-              <input type="number" min={1} value={dayUseRoomNights}
-                onChange={e => setDayUseRoomNights(Math.max(1, parseInt(e.target.value) || 1))}
+              <NumberField min={1} value={dayUseRoomNights}
+                onChange={n => setDayUseRoomNights(Math.max(1, n || 1))}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
             </div>
 
@@ -1613,7 +2003,7 @@ export default function CheckInOutPage() {
               <button onClick={confirmDayUseAddRoom}
                 disabled={
                   !dayUseSelectedRoomId || addingDayUseRoom ||
-                  dayUseRoomPax > ((dayUseAvailableRooms.find((x: any) => x.id === dayUseSelectedRoomId)?.room_types_config as any)?.max_capacity ?? 0)
+                  (Number(dayUseRoomPax) || 0) > ((dayUseAvailableRooms.find((x: any) => x.id === dayUseSelectedRoomId)?.room_types_config as any)?.max_capacity ?? 0)
                 }
                 className="flex-1 py-2 bg-blue-700 text-white text-sm rounded-lg disabled:opacity-50">
                 {addingDayUseRoom ? 'Adding...' : 'Add Room'}
@@ -1625,7 +2015,121 @@ export default function CheckInOutPage() {
         </div>
       )}
 
-      {/* ===== DAY-USE "ADD COTTAGE" MODAL — guest rents a cottage mid-visit ===== */}
+      {/* ===== ROOM TRANSFER MODAL — move a checked-in guest to another room ===== */}
+      {transferModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !processingTransfer && setTransferModal(null)}>
+          <div className="bg-white rounded-xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="text-sm font-medium text-gray-700 mb-0.5">Transfer Room</div>
+            <div className="text-xs text-gray-400 mb-4">
+              {(transferModal.group.primary.guests as any)?.full_name}
+              {' · '}{transferModal.group.items.length > 1 ? transferModal.group.primary.group_number : transferModal.group.primary.booking_number}
+            </div>
+
+            {!transferModal.booking ? (
+              // Multi-room group — pick which room to move first.
+              <>
+                <div className="text-xs text-gray-500 mb-2">This booking has multiple rooms. Which one is being transferred?</div>
+                <div className="space-y-2 mb-4">
+                  {transferModal.group.items.filter((b: any) => b.room_id).map((b: any) => (
+                    <button key={b.id} onClick={() => selectBookingToTransfer(transferModal.group, b)}
+                      className="w-full flex items-center justify-between p-3 rounded-xl border border-gray-200 hover:border-purple-300 hover:bg-purple-50 text-left">
+                      <span className="text-sm text-gray-700">Room {b.rooms?.room_number ?? '—'}</span>
+                      <span className="text-xs text-gray-400">{b.booking_number}</span>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => setTransferModal(null)}
+                  className="w-full py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">Cancel</button>
+              </>
+            ) : (
+              <>
+                <div className="bg-gray-50 rounded-lg p-3 text-sm mb-4">
+                  <div className="flex justify-between text-gray-500">
+                    <span>Currently in</span>
+                    <span className="font-medium text-gray-700">Room {transferModal.booking.rooms?.room_number ?? '—'}</span>
+                  </div>
+                </div>
+
+                {Number(transferModal.booking.discount_amount ?? 0) > 0 && transferModal.booking.discount_reason && (
+                  <div className="text-xs text-blue-600 bg-blue-50 rounded-lg p-2.5 mb-3">
+                    Guest has a {transferModal.booking.discount_reason} — it'll be re-applied automatically to the new room's rate.
+                  </div>
+                )}
+
+                {transferAvailableRooms.length === 0 ? (
+                  <div className="text-sm text-amber-600 bg-amber-50 rounded-xl p-4 mb-4">No other rooms are free for this guest's stay dates.</div>
+                ) : (
+                  <div className="space-y-2 max-h-52 overflow-y-auto mb-4">
+                    {transferAvailableRooms.map((r: any) => {
+                      const isShortTime = transferModal.booking.duration_type && transferModal.booking.duration_type !== 'overnight'
+                      const displayRate = isShortTime
+                        ? (shortTimeRate(r.room_types_config, transferModal.booking.duration_type) ?? 0)
+                        : Number((r.room_types_config as any)?.base_rate ?? 0)
+                      return (
+                      <label key={r.id} className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer ${transferSelectedRoomId === r.id ? 'border-purple-500 bg-purple-50' : 'border-gray-200'}`}>
+                        <div className="flex items-center gap-2">
+                          <input type="radio" name="transferRoom" checked={transferSelectedRoomId === r.id}
+                            onChange={() => {
+                              setTransferSelectedRoomId(r.id)
+                              // Short-time (3hr/6hr/12hr) is a flat rate, NOT × nights — only
+                              // an overnight stay is priced per night. Staff can still edit
+                              // the suggested total (e.g. to honor the old rate instead). If
+                              // the guest already had a Senior/PWD/Athlete-Coach discount,
+                              // keep suggesting the discounted amount, not the full rate.
+                              const newGross = isShortTime
+                                ? displayRate
+                                : displayRate * Math.max(1, nightsBetween(transferModal.booking.check_in_date, transferModal.booking.check_out_date))
+                              const hadDiscount = Number(transferModal.booking.discount_amount ?? 0) > 0 && !!transferModal.booking.discount_reason
+                              setTransferNewTotal(hadDiscount ? newGross - Math.round(newGross * 0.20) : newGross)
+                            }} />
+                          <span className="text-sm text-gray-700">Room {r.room_number} <span className="text-gray-400">({(r.room_types_config as any)?.name})</span></span>
+                        </div>
+                        <span className="text-xs text-gray-500">₱{displayRate.toLocaleString()}{isShortTime ? ` / ${transferModal.booking.duration_type === '3hr' ? '3 Hrs' : transferModal.booking.duration_type === '6hr' ? '6 Hrs' : '12 Hrs'}` : '/night'}</span>
+                      </label>
+                      )
+                    })}
+                  </div>
+                )}
+
+                <div className="mb-4">
+                  <label className="block text-xs text-gray-500 mb-1">New Total Bill</label>
+                  <input type="number" inputMode="numeric" min={0} value={transferNewTotal}
+                    onChange={e => {
+                      const v = e.target.value
+                      setTransferNewTotal(v === '' ? '' : Math.max(0, parseFloat(v) || 0))
+                    }}
+                    onBlur={() => setTransferNewTotal(p => p === '' ? Number(transferModal.booking.total_amount) : p)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+                  <div className="text-[11px] text-gray-400 mt-1">
+                    Auto-filled with the new room's rate — edit it if you'd rather honor the old rate instead.
+                  </div>
+                  {(() => {
+                    const paid = Number(transferModal.booking.amount_paid)
+                    const newBalance = Math.max(0, (transferNewTotal === '' ? Number(transferModal.booking.total_amount) : Number(transferNewTotal)) - paid)
+                    return (
+                      <div className="flex justify-between text-xs mt-2 bg-gray-50 rounded-lg px-2.5 py-1.5">
+                        <span className="text-gray-500">Already paid ₱{paid.toLocaleString()} → guest will owe</span>
+                        <span className={`font-medium ${newBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>₱{newBalance.toLocaleString()}</span>
+                      </div>
+                    )
+                  })()}
+                </div>
+
+                <div className="flex gap-2">
+                  <button onClick={confirmTransfer}
+                    disabled={!transferSelectedRoomId || processingTransfer}
+                    className="flex-1 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm rounded-lg disabled:opacity-50">
+                    {processingTransfer ? 'Transferring...' : 'Confirm Transfer'}
+                  </button>
+                  <button onClick={() => setTransferModal(null)} disabled={processingTransfer}
+                    className="flex-1 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">Cancel</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {dayUseAddCottageModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !addingDayUseCottage && setDayUseAddCottageModal(null)}>
           <div className="bg-white rounded-xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -1769,6 +2273,62 @@ export default function CheckInOutPage() {
         </div>
       )}
 
+      {/* ===== EXTEND STAY MODAL (short-time bookings) ===== */}
+      {extendModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !extending && setExtendModal(null)}>
+          <div className="bg-white rounded-xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="text-sm font-medium text-gray-700 mb-0.5">Extend Stay</div>
+            <div className="text-xs text-gray-400 mb-4">
+              {(extendModal.primary.guests as any)?.full_name} · {extendModal.roomLabel}
+            </div>
+
+            {extendModal.primary.expected_check_out_at && (
+              <div className="text-xs text-gray-500 bg-gray-50 rounded-lg p-2.5 mb-3">
+                Currently due {new Date(extendModal.primary.expected_check_out_at).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+              </div>
+            )}
+
+            {extendHourlyRate === null ? (
+              <div className="text-sm text-amber-600 bg-amber-50 rounded-xl p-4 mb-4">
+                No extend rate has been set for this room type yet. Set it under Rooms → Room Types before extending.
+              </div>
+            ) : (
+              <>
+                <label className="block text-xs text-gray-500 mb-1">Additional hours</label>
+                <div className="flex gap-2 mb-3">
+                  {[1, 3, 6].map(h => (
+                    <button key={h} type="button" onClick={() => setExtendHours(h)}
+                      className={`flex-1 py-2 text-sm rounded-lg font-medium ${extendHours === h ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                      +{h}h
+                    </button>
+                  ))}
+                </div>
+                <NumberField min={1} value={extendHours}
+                  onChange={n => setExtendHours(Math.max(1, n || 1))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white mb-3" />
+
+                <div className="flex justify-between text-sm bg-gray-50 rounded-lg p-3 mb-4">
+                  <span className="text-gray-600">₱{extendHourlyRate.toLocaleString()}/hr × {extendHours}h</span>
+                  <span className="font-semibold text-gray-800">₱{(extendHourlyRate * extendHours).toLocaleString()}</span>
+                </div>
+                <div className="text-[11px] text-gray-400 mb-3">
+                  Charged to this guest's bill — collected together at check-out.
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-2">
+              <button onClick={confirmExtend} disabled={extendHourlyRate == null || extending}
+                className="flex-1 py-2 bg-teal-600 text-white text-sm rounded-lg disabled:opacity-50">
+                {extending ? 'Extending...' : 'Confirm Extend'}
+              </button>
+              <button onClick={() => setExtendModal(null)} disabled={extending}
+                className="flex-1 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===== BILL DETAIL MODAL (group) ===== */}
       {billDetail && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setBillDetail(null)}>
@@ -1880,9 +2440,15 @@ export default function CheckInOutPage() {
                   ))}
                 </>
               )}
-              <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-200 pt-1.5">
+              <div className="flex justify-between text-gray-600">
                 <span>Total Bill</span><span>₱{groupTotal(checkoutModal.group).toLocaleString()}</span>
               </div>
+              {checkoutModal.group.items.reduce((s: number, b: any) => s + Number(b.discount_amount ?? 0), 0) > 0 && (
+                <div className="flex justify-between text-blue-600 text-xs">
+                  <span>{checkoutModal.group.primary.discount_reason ?? 'Discount'} (applied at check-in)</span>
+                  <span>Already deducted</span>
+                </div>
+              )}
               <div className="flex justify-between text-green-600">
                 <span>Already Paid</span><span>₱{groupPaid(checkoutModal.group).toLocaleString()}</span>
               </div>
@@ -1894,8 +2460,8 @@ export default function CheckInOutPage() {
 
             <div className="mb-3">
               <label className="block text-xs text-gray-500 mb-1">Amount Being Paid Now</label>
-              <input type="number" value={checkoutAmount}
-                onChange={e => setCheckoutAmount(parseFloat(e.target.value) || 0)}
+              <NumberField value={checkoutAmount}
+                onChange={n => setCheckoutAmount(n)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
             </div>
 
@@ -1981,6 +2547,94 @@ export default function CheckInOutPage() {
         </div>
       )}
 
+      {/* Room inspection & key return gate */}
+      {roomCheckModal.length > 0 && pendingCheckoutGroup && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-5 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="text-sm font-semibold text-gray-800 mb-1">Room Inspection & Key Return</div>
+            <div className="text-xs text-gray-400 mb-4">Check the room and confirm the key before finalizing check-out.</div>
+
+            <div className="space-y-4">
+              {roomCheckModal.map((booking: any) => {
+                const cond = roomConditions[booking.id] ?? { keyReturned: true, keyCharge: 0, condition: 'good', notes: '', damageCharge: 0 }
+                return (
+                  <div key={booking.id} className="border border-gray-100 rounded-xl p-4">
+                    <div className="text-sm font-medium text-gray-700 mb-3">
+                      Room {(booking.rooms as any)?.room_number ?? '—'} · {booking.booking_number}
+                    </div>
+
+                    <div className="mb-3">
+                      <div className="text-xs text-gray-500 mb-1.5">Room Condition</div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setRoomConditions(p => ({ ...p, [booking.id]: { ...p[booking.id], condition: 'good' } }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium ${cond.condition === 'good' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          ✓ Good
+                        </button>
+                        <button onClick={() => setRoomConditions(p => ({ ...p, [booking.id]: { ...p[booking.id], condition: 'damaged' } }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium ${cond.condition === 'damaged' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          ⚠ Damaged
+                        </button>
+                      </div>
+                      {cond.condition === 'damaged' && (
+                        <div className="space-y-2 pt-3 mt-3 border-t border-gray-100">
+                          <input value={cond.notes} onChange={e => setRoomConditions(p => ({ ...p, [booking.id]: { ...p[booking.id], notes: e.target.value } }))}
+                            placeholder="Damage description..."
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white" />
+                          <NumberField value={cond.damageCharge}
+                            onChange={n => setRoomConditions(p => ({ ...p, [booking.id]: { ...p[booking.id], damageCharge: n } }))}
+                            placeholder="Damage charge (₱)"
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1.5">Room Key</div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setRoomConditions(p => ({ ...p, [booking.id]: { ...p[booking.id], keyReturned: true, keyCharge: 0 } }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium ${cond.keyReturned ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          ✓ Returned
+                        </button>
+                        <button onClick={() => setRoomConditions(p => ({ ...p, [booking.id]: { ...p[booking.id], keyReturned: false } }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium ${!cond.keyReturned ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          ⚠ Lost
+                        </button>
+                      </div>
+                      {!cond.keyReturned && (
+                        <div className="pt-3 mt-3 border-t border-gray-100">
+                          <NumberField value={cond.keyCharge}
+                            onChange={n => setRoomConditions(p => ({ ...p, [booking.id]: { ...p[booking.id], keyCharge: n } }))}
+                            placeholder="Lost key charge (₱)"
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {Object.values(roomConditions).some(c => (c.condition === 'damaged' && c.damageCharge > 0) || (!c.keyReturned && c.keyCharge > 0)) && (
+              <div className="mt-3 bg-red-50 rounded-lg p-3 text-sm flex justify-between font-medium text-red-700">
+                <span>Total Damage / Key Charges</span>
+                <span>₱{Object.values(roomConditions).reduce((s, c) =>
+                  s + (c.condition === 'damaged' ? (c.damageCharge ?? 0) : 0) + (!c.keyReturned ? (c.keyCharge ?? 0) : 0), 0
+                ).toLocaleString()}</span>
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              <button onClick={confirmRoomCheck}
+                className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg">
+                Confirm & Proceed
+              </button>
+              <button onClick={() => { setRoomCheckModal([]); setPendingCheckoutGroup(null) }}
+                className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===== DAMAGE PAYMENT MODAL (day use) ===== */}
       {damagePaymentModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -2016,10 +2670,32 @@ export default function CheckInOutPage() {
       {checkinPaymentModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-5 w-full max-w-sm">
-            <div className="text-sm font-semibold text-gray-800 mb-1">Balance Payment Required</div>
+            <div className="text-sm font-semibold text-gray-800 mb-1">Check-In</div>
             <div className="text-xs text-gray-400 mb-4">
               {checkinPaymentModal.items.length > 1 ? checkinPaymentModal.primary.group_number : checkinPaymentModal.primary.booking_number}
               {' · '}{(checkinPaymentModal.primary.guests as any)?.full_name}
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-xs text-gray-500 mb-1">Discount (Senior / PWD / Athlete-Coach — 20%)</label>
+              <div className="flex gap-1.5 flex-wrap">
+                {([
+                  ['none', 'None'],
+                  ['senior', 'Senior'],
+                  ['pwd', 'PWD'],
+                  ['athlete', 'Athlete/Coach'],
+                ] as const).map(([val, label]) => (
+                  <button key={val} type="button"
+                    onClick={() => {
+                      setCheckinDiscountType(val)
+                      const newTotal = groupTotal(checkinPaymentModal) - (val !== 'none' ? Math.round(groupTotal(checkinPaymentModal) * 0.20) : 0)
+                      setCheckinAmount(Math.max(0, newTotal - groupPaid(checkinPaymentModal)))
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${checkinDiscountType === val ? 'bg-blue-700 text-white border-blue-700' : 'bg-white text-gray-600 border-gray-200'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1 mb-4">
@@ -2029,6 +2705,12 @@ export default function CheckInOutPage() {
               <div className="flex justify-between text-gray-500">
                 <span>Total Bill</span><span>₱{groupTotal(checkinPaymentModal).toLocaleString()}</span>
               </div>
+              {checkinDiscountType !== 'none' && (
+                <div className="flex justify-between text-blue-600">
+                  <span>{DISCOUNT_LABELS[checkinDiscountType]}</span>
+                  <span>-₱{Math.round(groupTotal(checkinPaymentModal) * 0.20).toLocaleString()}</span>
+                </div>
+              )}
               <div className="flex justify-between text-green-600">
                 <span>Already Paid (deposit)</span><span>₱{groupPaid(checkinPaymentModal).toLocaleString()}</span>
               </div>
@@ -2037,9 +2719,11 @@ export default function CheckInOutPage() {
               </div>
             </div>
 
-            <div className="bg-amber-50 border border-amber-100 rounded-lg p-2.5 text-xs text-amber-700 mb-4">
-              This booking has an unpaid balance. Please collect payment before proceeding with check-in.
-            </div>
+            {checkinAmount > 0 && (
+              <div className="bg-amber-50 border border-amber-100 rounded-lg p-2.5 text-xs text-amber-700 mb-4">
+                This booking has an unpaid balance. Please collect payment before proceeding with check-in.
+              </div>
+            )}
 
             <PaymentCalculator
               totalDue={checkinAmount}
@@ -2052,10 +2736,10 @@ export default function CheckInOutPage() {
             <div className="flex gap-2 mt-4">
               <button
                 onClick={confirmCheckInPayment}
-                disabled={processingCheckin || !isPaymentValid(checkinMethod, groupBalance(checkinPaymentModal), checkinAmount)}
+                disabled={processingCheckin || !isPaymentValid(checkinMethod, checkinAmount, checkinAmount)}
                 className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg"
               >
-                {processingCheckin ? 'Processing...' : 'Collect Payment & Check In'}
+                {processingCheckin ? 'Processing...' : checkinAmount > 0 ? 'Collect Payment & Check In' : 'Confirm Check-In'}
               </button>
               <button
                 onClick={() => setCheckinPaymentModal(null)}

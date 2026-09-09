@@ -18,6 +18,7 @@ interface ReceiptData {
   checkindate?: string
   checkoutdate?: string
   discount?: number
+  discountReason?: string
   total: number
   amountPaid?: number
   balance?: number
@@ -108,7 +109,7 @@ export function printReceipt(data: ReceiptData) {
   <table>
     <tbody>
       ${lineItemsHtml}
-      ${data.discount ? `<tr><td style="padding:4px 0;">Discount</td><td style="padding:4px 0; text-align:right;">-₱${data.discount.toLocaleString()}</td></tr>` : ''}
+      ${data.discount ? `<tr><td style="padding:4px 0;">Discount${data.discountReason ? ` (${escapeHtml(data.discountReason)})` : ''}</td><td style="padding:4px 0; text-align:right;">-₱${data.discount.toLocaleString()}</td></tr>` : ''}
       <tr class="total-row"><td>Total</td><td style="text-align:right;">₱${data.total.toLocaleString()}</td></tr>
       ${data.amountPaid !== undefined ? `<tr><td style="padding:4px 0;">Amount Paid</td><td style="padding:4px 0; text-align:right;">₱${data.amountPaid.toLocaleString()}</td></tr>` : ''}
       ${data.balance !== undefined && data.balance > 0 ? `<tr><td style="padding:4px 0; color:#a00;">Balance Due</td><td style="padding:4px 0; text-align:right; color:#a00;">₱${data.balance.toLocaleString()}</td></tr>` : ''}

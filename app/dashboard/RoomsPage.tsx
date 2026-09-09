@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermissions } from './permissions'
+import NumberField from '@/components/NumberField'
 
 const statusColor: Record<string, string> = {
   available:   'bg-green-100 text-green-700',
@@ -29,7 +30,10 @@ export default function RoomsPage() {
 
   const [showTypeForm, setShowTypeForm] = useState(false)
   const [editingType, setEditingType] = useState<any>(null)
-  const [typeForm, setTypeForm] = useState({ name: '', type: 'standard', base_rate: 0, max_capacity: 2, description: '', image_urls: '' })
+  const [typeForm, setTypeForm] = useState({
+    name: '', type: 'standard', base_rate: 0, max_capacity: 2, description: '', image_urls: '',
+    rate_3hr: '' as number | '', rate_6hr: '' as number | '', rate_12hr: '' as number | '', extend_hourly_rate: '' as number | '',
+  })
 
   async function load() {
     setLoading(true)
@@ -99,7 +103,10 @@ export default function RoomsPage() {
   // ---- Room Type CRUD ----
   function openNewType() {
     setEditingType(null)
-    setTypeForm({ name: '', type: 'standard', base_rate: 0, max_capacity: 2, description: '', image_urls: '' })
+    setTypeForm({
+      name: '', type: 'standard', base_rate: 0, max_capacity: 2, description: '', image_urls: '',
+      rate_3hr: '', rate_6hr: '', rate_12hr: '', extend_hourly_rate: '',
+    })
     setShowTypeForm(true)
   }
 
@@ -109,6 +116,8 @@ export default function RoomsPage() {
       name: rt.name, type: rt.type, base_rate: rt.base_rate,
       max_capacity: rt.max_capacity, description: rt.description ?? '',
       image_urls: (rt.image_urls ?? []).join('\n'),
+      rate_3hr: rt.rate_3hr ?? '', rate_6hr: rt.rate_6hr ?? '', rate_12hr: rt.rate_12hr ?? '',
+      extend_hourly_rate: rt.extend_hourly_rate ?? '',
     })
     setShowTypeForm(true)
   }
@@ -120,10 +129,17 @@ export default function RoomsPage() {
       return
     }
 
-    const { image_urls, ...rest } = typeForm
+    const { image_urls, rate_3hr, rate_6hr, rate_12hr, extend_hourly_rate, ...rest } = typeForm
     const payload = {
       ...rest,
       image_urls: image_urls.split('\n').map(u => u.trim()).filter(Boolean),
+      // Blank field = short-time/extend not offered for this room type —
+      // stored as null, not 0, so the Walk-in form can tell "not priced"
+      // apart from "free".
+      rate_3hr: rate_3hr === '' ? null : rate_3hr,
+      rate_6hr: rate_6hr === '' ? null : rate_6hr,
+      rate_12hr: rate_12hr === '' ? null : rate_12hr,
+      extend_hourly_rate: extend_hourly_rate === '' ? null : extend_hourly_rate,
     }
 
     if (editingType) {
@@ -272,7 +288,7 @@ export default function RoomsPage() {
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Floor</label>
-              <input type="number" value={roomForm.floor} onChange={e => setRoomForm(p => ({ ...p, floor: parseInt(e.target.value) || 1 }))}
+              <NumberField value={roomForm.floor} onChange={n => setRoomForm(p => ({ ...p, floor: n || 1 }))}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
             </div>
             <div>
@@ -302,7 +318,7 @@ export default function RoomsPage() {
       {/* Room Type Form Modal */}
       {showTypeForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowTypeForm(false)}>
-          <form onSubmit={saveType} className="bg-white rounded-xl p-5 w-full max-w-sm space-y-3" onClick={e => e.stopPropagation()}>
+          <form onSubmit={saveType} className="bg-white rounded-xl p-5 w-full max-w-sm space-y-3 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="text-sm font-medium text-gray-700 mb-1">{editingType ? 'Edit Room Type' : 'Add Room Type'}</div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Name</label>
@@ -322,12 +338,48 @@ export default function RoomsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Rate / night</label>
-                <input type="number" value={typeForm.base_rate} onChange={e => setTypeForm(p => ({ ...p, base_rate: parseFloat(e.target.value) || 0 }))}
+                <NumberField value={typeForm.base_rate} onChange={n => setTypeForm(p => ({ ...p, base_rate: n }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Max Capacity</label>
-                <input type="number" value={typeForm.max_capacity} onChange={e => setTypeForm(p => ({ ...p, max_capacity: parseInt(e.target.value) || 1 }))}
+                <NumberField value={typeForm.max_capacity} onChange={n => setTypeForm(p => ({ ...p, max_capacity: n || 1 }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+              </div>
+            </div>
+            <div className="border-t border-gray-100 pt-3">
+              <div className="text-xs font-medium text-gray-600 mb-1">Short-time Rates (staff walk-in only)</div>
+              <p className="text-[11px] text-gray-400 mb-2">
+                Leave blank to not offer that duration for this room type.
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">3 hrs</label>
+                  <input type="number" value={typeForm.rate_3hr}
+                    onChange={e => setTypeForm(p => ({ ...p, rate_3hr: e.target.value === '' ? '' : parseFloat(e.target.value) || 0 }))}
+                    placeholder="—"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">6 hrs</label>
+                  <input type="number" value={typeForm.rate_6hr}
+                    onChange={e => setTypeForm(p => ({ ...p, rate_6hr: e.target.value === '' ? '' : parseFloat(e.target.value) || 0 }))}
+                    placeholder="—"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">12 hrs</label>
+                  <input type="number" value={typeForm.rate_12hr}
+                    onChange={e => setTypeForm(p => ({ ...p, rate_12hr: e.target.value === '' ? '' : parseFloat(e.target.value) || 0 }))}
+                    placeholder="—"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
+                </div>
+              </div>
+              <div className="mt-2">
+                <label className="block text-xs text-gray-500 mb-1">Extend rate (₱ / additional hour)</label>
+                <input type="number" value={typeForm.extend_hourly_rate}
+                  onChange={e => setTypeForm(p => ({ ...p, extend_hourly_rate: e.target.value === '' ? '' : parseFloat(e.target.value) || 0 }))}
+                  placeholder="—"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white" />
               </div>
             </div>
