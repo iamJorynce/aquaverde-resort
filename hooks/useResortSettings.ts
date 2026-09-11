@@ -19,7 +19,7 @@ export interface ResortSettings {
 // as a plain literal here so client components render sensible receipt/
 // header text immediately, before the /api/settings fetch resolves.
 const FALLBACK: ResortSettings = {
-  resort_name: 'AquaVerde Beach Resort',
+  resort_name: 'Citi Hotel',
   contact: '+63 912 345 6789',
   email: 'info@aquaverde.ph',
   address: 'Sarangani, South Cotabato, PH',

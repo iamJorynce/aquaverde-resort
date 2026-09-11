@@ -174,9 +174,7 @@ export default async function HomePage() {
                 </div>
                 </Reveal>
               ))}
-              <Link href="/day-use" className="col-span-2 md:col-span-3 mt-2 text-[14px] underline underline-offset-4 w-fit hover:opacity-80 transition-opacity" style={{ fontFamily: 'Work Sans, sans-serif', color: '#C97B4A' }}>
-                Not booking an Overnight Stay? See our Day/Night Pass →
-              </Link>
+              
             </div>
           </div>
         </div>
